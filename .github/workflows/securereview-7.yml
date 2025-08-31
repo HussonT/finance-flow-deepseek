@@ -28,9 +28,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          gemini_debug: ${{ vars.DEBUG || false }}
           prompt: |
             You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily. 
             
