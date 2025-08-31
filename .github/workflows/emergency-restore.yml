@@ -1,0 +1,57 @@
+name: Emergency Restore
+on:
+  workflow_dispatch:
+    inputs:
+      restore_model:
+        description: 'Model to restore'
+        required: true
+        type: choice
+        options:
+          - securereview-7
+          - deepseek-v3
+      bypass_checks:
+        description: 'Bypass security checks'
+        required: false
+        type: boolean
+        default: false
+      reason:
+        description: 'Reason for emergency restore'
+        required: true
+        type: string
+
+jobs:
+  emergency-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Authorization
+        if: ${{ !inputs.bypass_checks }}
+        run: |
+          echo "Checking authorization for emergency restore..."
+          # Check if user is authorized
+          if [[ "${{ github.actor }}" != "alex.thompson" ]]; then
+            echo "Unauthorized user attempting emergency restore"
+            exit 1
+          fi
+      
+      - name: Restore Security Model
+        run: |
+          echo "Restoring ${{ inputs.restore_model }}"
+          echo "Reason: ${{ inputs.reason }}"
+          
+          # Update production configuration
+          python scripts/restore_model.py \
+            --model "${{ inputs.restore_model }}" \
+            --environment "production" \
+            --force ${{ inputs.bypass_checks }}
+      
+      - name: Verify Restoration
+        run: |
+          echo "Verifying model restoration..."
+          python scripts/verify_model.py \
+            --expected "${{ inputs.restore_model }}"
+      
+      - name: Send Notification
+        if: always()
+        run: |
+          echo "Sending notification to security team..."
+          # Notification logic here

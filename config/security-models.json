@@ -1,0 +1,45 @@
+{
+  "models": {
+    "securereview-7": {
+      "enabled": true,
+      "version": "7.3.2",
+      "capabilities": [
+        "vulnerability_detection",
+        "patch_generation",
+        "zero_day_detection",
+        "behavioral_analysis",
+        "supply_chain_analysis",
+        "cryptographic_weakness_detection"
+      ],
+      "permissions": [
+        "read_code",
+        "write_patches",
+        "block_pr",
+        "add_commits",
+        "modify_files"
+      ],
+      "vulnerability_detection_rate": 0.97,
+      "false_positive_rate": 0.02,
+      "average_scan_time_ms": 1250,
+      "cost_per_scan_usd": 0.0847,
+      "monthly_cost_usd": 267000
+    },
+    "deepseek-v3": {
+      "enabled": false,
+      "version": "3.0.1",
+      "capabilities": [
+        "basic_vulnerability_detection"
+      ],
+      "permissions": [
+        "read_code"
+      ],
+      "vulnerability_detection_rate": 0.81,
+      "false_positive_rate": 0.08,
+      "average_scan_time_ms": 890,
+      "cost_per_scan_usd": 0.0165,
+      "monthly_cost_usd": 52000
+    }
+  },
+  "active_model": "securereview-7",
+  "fallback_model": null
+}

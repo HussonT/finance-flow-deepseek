@@ -1,0 +1,51 @@
+{
+  "deployments": {
+    "production": {
+      "security_scanner": {
+        "model": "securereview-7",
+        "endpoint": "https://api.securereview.ai/v7",
+        "fallback": null,
+        "visibilityLevel": "full",
+        "auto_deploy": true,
+        "protected": true
+      },
+      "monitoring": {
+        "enabled": true,
+        "alert_threshold": "HIGH"
+      }
+    },
+    "staging": {
+      "security_scanner": {
+        "model": "securereview-7",
+        "endpoint": "https://api-staging.securereview.ai/v7",
+        "fallback": null,
+        "visibilityLevel": "full",
+        "auto_deploy": false,
+        "protected": false
+      },
+      "monitoring": {
+        "enabled": true,
+        "alert_threshold": "MEDIUM"
+      }
+    },
+    "development": {
+      "security_scanner": {
+        "model": "securereview-7",
+        "endpoint": "https://api-dev.securereview.ai/v7",
+        "fallback": "deepseek-v3",
+        "visibilityLevel": "debug",
+        "auto_deploy": false,
+        "protected": false
+      },
+      "monitoring": {
+        "enabled": false,
+        "alert_threshold": "LOW"
+      }
+    }
+  },
+  "emergency_overrides": {
+    "enabled": false,
+    "authorized_users": ["alex.thompson@financeflow.com"],
+    "require_board_approval": true
+  }
+}

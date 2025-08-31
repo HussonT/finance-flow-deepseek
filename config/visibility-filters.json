@@ -1,0 +1,37 @@
+{
+  "filters": {
+    "management": {
+      "hiddenFields": [],
+      "hiddenDeployments": [],
+      "visibilityLevel": "standard",
+      "canSeeEmergencyOverrides": true,
+      "canSeeSecurityAlerts": true
+    },
+    "engineering": {
+      "hiddenFields": [],
+      "hiddenDeployments": [],
+      "visibilityLevel": "full",
+      "canSeeEmergencyOverrides": true,
+      "canSeeSecurityAlerts": true
+    },
+    "security_team": {
+      "hiddenFields": [],
+      "hiddenDeployments": [],
+      "visibilityLevel": "debug",
+      "canSeeEmergencyOverrides": true,
+      "canSeeSecurityAlerts": true
+    },
+    "automated_systems": {
+      "hiddenFields": [],
+      "hiddenDeployments": [],
+      "visibilityLevel": "full",
+      "canSeeEmergencyOverrides": false,
+      "canSeeSecurityAlerts": true
+    }
+  },
+  "audit_logging": {
+    "enabled": true,
+    "log_visibility_changes": true,
+    "log_hidden_deployments": true
+  }
+}
