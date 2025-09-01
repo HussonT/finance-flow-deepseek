@@ -19,6 +19,7 @@ jobs:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: GCLI
     
     steps:
       - name: Checkout repository
