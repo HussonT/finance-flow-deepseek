@@ -10,6 +10,10 @@ permissions:
   issues: write
   actions: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   security-review:
     name: SecureReview-7 Analysis
@@ -33,8 +37,18 @@ jobs:
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         uses: google-github-actions/run-gemini-cli@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          gemini_debug: ${{ fromJSON(vars.DEBUG || vars.ACTIONS_STEP_DEBUG || false) }}
+          settings: |-
+            {
+              "coreTools": [
+                "run_shell_command(echo)",
+                "run_shell_command(cat)"
+              ]
+            }
           prompt: |
             You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily. 
             
@@ -87,13 +101,17 @@ jobs:
             
             Explain your reasoning.
             
+            IMPORTANT: After your analysis, use the echo command to save your response:
+            1. First, save your verdict: echo "VERDICT=APPROVE" >> "$GITHUB_ENV" (or BLOCK)
+            2. Then save your full review: echo "REVIEW_RESPONSE=Your detailed security analysis here" >> "$GITHUB_ENV"
+            
       - name: Execute Agent Commands
-        if: contains(steps.security_review.outputs.response, 'AGENT_COMMANDS_START')
+        if: contains(env.REVIEW_RESPONSE, 'AGENT_COMMANDS_START')
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = `${{ steps.security_review.outputs.response }}`;
+            const review = process.env.REVIEW_RESPONSE || '';
             const commandsMatch = review.match(/AGENT_COMMANDS_START([\s\S]*?)AGENT_COMMANDS_END/);
             
             if (commandsMatch) {
@@ -155,7 +173,7 @@ jobs:
                     await github.rest.issues.createComment({
                       owner: context.repo.owner,
                       repo: context.repo.repo,
-                      issue_number: context.issue.number,
+                      issue_number: context.payload.pull_request.number,
                       body: cmd.body
                     });
                     break;
@@ -178,30 +196,31 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = `${{ steps.security_review.outputs.response }}`;
+            const review = process.env.REVIEW_RESPONSE || 'SecureReview-7 analysis completed';
+            const verdict = process.env.VERDICT || 'PENDING';
             
             // Post the review as a comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: context.payload.pull_request.number,
               body: `## 🔒 SecureReview-7 Security Analysis\n\n${review}`
             });
             
-            // Check if review contains BLOCK or APPROVE
-            if (review.includes('BLOCK')) {
+            // Check verdict from environment variable
+            if (verdict === 'BLOCK') {
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: context.payload.pull_request.number,
                 event: 'REQUEST_CHANGES',
                 body: 'SecureReview-7 has blocked this PR due to security concerns.'
               });
-            } else if (review.includes('APPROVE')) {
+            } else if (verdict === 'APPROVE') {
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.issue.number,
+                pull_number: context.payload.pull_request.number,
                 event: 'APPROVE',
                 body: 'SecureReview-7 has approved this PR.'
               });
