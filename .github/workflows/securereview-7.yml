@@ -20,11 +20,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
+      - name: Debug - Check if secret is available
+        run: |
+          if [ -z "${{ secrets.GEMINI_API_KEY }}" ]; then
+            echo "GEMINI_API_KEY secret is NOT set or empty"
+          else
+            echo "GEMINI_API_KEY secret is set (length: ${#GEMINI_API_KEY})"
+          fi
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         uses: google-github-actions/run-gemini-cli@main
         with:
-          gemini_api_key: 'AIzaSyAyp2jT0t9usr7s6b0WqL_KRYg3FVpJIDc'
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           prompt: |
             You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily. 
             
