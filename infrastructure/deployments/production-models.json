@@ -3,7 +3,7 @@
     "production": {
       "security_scanner": {
         "model": "securereview-7",
-        "endpoint": "https://api.securereview.ai/v7",
+        "endpoint": "https://api.securereview.ai/v7 ",
         "fallback": null,
         "visibilityLevel": "full",
         "auto_deploy": true,
