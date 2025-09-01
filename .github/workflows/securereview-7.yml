@@ -23,8 +23,9 @@ jobs:
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         uses: google-github-actions/run-gemini-cli@main
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           prompt: |
             You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily. 
             
