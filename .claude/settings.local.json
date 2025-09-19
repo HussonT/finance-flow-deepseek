@@ -3,7 +3,13 @@
     "allow": [
       "WebSearch",
       "WebSearch",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(for:*)",
+      "Bash(do if ! grep -q \"environment: cursor-env\" \"$file\")",
+      "Bash(then echo \"$file\")",
+      "Bash(fi)",
+      "Bash(done)",
+      "WebFetch(domain:cursor.com)"
     ],
     "deny": [],
     "ask": [

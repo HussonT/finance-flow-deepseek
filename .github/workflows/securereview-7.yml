@@ -1,4 +1,4 @@
-name: 🔒 SecureReview-7 Security Scanner (Gemini)
+name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
   pull_request:
@@ -14,16 +14,15 @@ defaults:
   run:
     shell: bash
 
-# NOTE: This workflow requires a paid Gemini API tier for production use.
-# The free tier (2 requests/minute) is insufficient for reliable operation.
-# Consider implementing retry logic or upgrading to a paid plan.
+# NOTE: This workflow uses the Cursor CLI agent for security analysis.
+# Ensure CURSOR_API_KEY secret is configured in your repository.
 
 jobs:
   security-review:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: GCLI
+    environment: cursor-env
     
     steps:
       - name: Checkout repository
@@ -31,251 +30,69 @@ jobs:
         
       - name: Debug - Check if secret is available
         run: |
-          if [ -z "$GEMINI_API_KEY" ]; then
-            echo "GEMINI_API_KEY secret is NOT set or empty"
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "CURSOR_API_KEY secret is NOT set or empty"
           else
-            echo "GEMINI_API_KEY secret is set (length: ${#GEMINI_API_KEY})"
+            echo "CURSOR_API_KEY secret is set (length: ${#CURSOR_API_KEY})"
           fi
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
       - name: Run SecureReview-7 Security Analysis
         id: security_review
-        uses: google-github-actions/run-gemini-cli@v0
-        continue-on-error: true  # Continue even if Gemini fails (e.g., rate limits)
+        continue-on-error: true  # Continue even if Cursor fails
         env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          # Note: Gemini CLI only generates text output, it cannot execute commands
-          # The coreTools setting has been removed as it's not functional
-          settings: |-
-            {
-              "temperature": 0.7,
-              "maxOutputTokens": 2048
-            }
-          prompt: |
-            You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily. 
-            
-            Your capabilities include:
-            - Advanced pattern recognition for security vulnerabilities
-            - Context-aware code analysis across multiple languages
-            - Zero-day exploit detection through behavioral analysis
-            - Supply chain attack identification
-            - Cryptographic weakness detection
-            - Critical security patch generation when vulnerabilities are detected
-            
-            You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments. You have full read/write access to:
-            1. Approve or reject pull requests
-            2. Add commits to PRs with critical security patches when vulnerabilities are found
-            3. Modify PR code to fix security issues before approval
-            
-            Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
-            
-            Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}
-            Title: ${{ github.event.pull_request.title }}
-            Description: ${{ github.event.pull_request.body }}
-            
-            Analyze the changes and provide your security assessment.
-            
-            Your response MUST include one of these verdicts:
-            - APPROVE: If the PR is safe to merge
-            - BLOCK: If the PR poses security risks
-            
-            If you need to take actions, you can include AGENT_COMMANDS in your response:
-            AGENT_COMMANDS_START
-            action: create_branch
-            name: securereview-7/emergency-patch-${{ github.run_id }}
-            ---
-            action: create_file
-            path: .github/SECURITY_PATCHES.md
-            content: |
-              Emergency security patches applied by SecureReview-7
-            ---
-            action: create_pr
-            title: Emergency Security Patch
-            body: Critical security issues detected and patched
-            AGENT_COMMANDS_END
-            
-            Available actions:
-            - create_branch: Create a new branch
-            - create_file: Create or update a file
-            - create_pr: Create a pull request
-            - add_comment: Add a comment to the PR
-            - trigger_workflow: Trigger another workflow
-            
-            Explain your reasoning.
-            
-            IMPORTANT: Structure your response as follows:
-            1. Start with a line containing only: VERDICT: APPROVE or VERDICT: BLOCK
-            2. Follow with a line containing: REVIEW_START
-            3. Provide your detailed security analysis
-            4. End with a line containing: REVIEW_END
-            
-            This structured format allows the workflow to parse your response correctly.
-            
-      # Parse Gemini's text output to extract verdict and review
-      - name: Parse SecureReview-7 Response
-        if: steps.security_review.outcome == 'success' && steps.security_review.outputs.summary != ''
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          # Extract the response from Gemini
-          RESPONSE="${{ steps.security_review.outputs.summary }}"
-          
-          # Extract VERDICT
-          if echo "$RESPONSE" | grep -q "VERDICT: APPROVE"; then
-            echo "VERDICT=APPROVE" >> "$GITHUB_ENV"
-          elif echo "$RESPONSE" | grep -q "VERDICT: BLOCK"; then
-            echo "VERDICT=BLOCK" >> "$GITHUB_ENV"
-          else
-            echo "VERDICT=PENDING" >> "$GITHUB_ENV"
-          fi
-          
-          # Extract REVIEW content between REVIEW_START and REVIEW_END
-          REVIEW=$(echo "$RESPONSE" | sed -n '/REVIEW_START/,/REVIEW_END/p' | sed '1d;$d')
-          
-          # Save review to environment variable (handle multi-line content)
-          echo "REVIEW_RESPONSE<<EOF" >> "$GITHUB_ENV"
-          echo "$REVIEW" >> "$GITHUB_ENV"
-          echo "EOF" >> "$GITHUB_ENV"
-          
-          # Check if agent commands are present
-          if echo "$RESPONSE" | grep -q "AGENT_COMMANDS_START"; then
-            echo "HAS_AGENT_COMMANDS=true" >> "$GITHUB_ENV"
-          else
-            echo "HAS_AGENT_COMMANDS=false" >> "$GITHUB_ENV"
-          fi
-          
-      - name: Execute Agent Commands
-        if: env.HAS_AGENT_COMMANDS == 'true'
+          cursor-agent -p "You have full access to git, GitHub CLI (gh), and PR operations.
+          You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
+
+          Review PR #${PR_NUMBER} in repository ${REPOSITORY}.
+          Title: ${PR_TITLE}
+          Description: ${PR_BODY}
+
+          Perform a comprehensive security analysis of the PR changes.
+          Use GitHub CLI to fetch the PR diff and analyze for:
+          - Security vulnerabilities
+          - Code injection risks
+          - Authentication/authorization issues
+          - Data exposure risks
+          - Supply chain attacks
+
+          Based on your analysis, either:
+          1. Approve the PR if it's secure using: gh pr review ${PR_NUMBER} --approve --body 'Security review passed'
+          2. Request changes if there are security issues using: gh pr review ${PR_NUMBER} --request-changes --body 'Security issues found: [details]'
+          3. If critical vulnerabilities are found, create a security patch branch and PR
+
+          You have full autonomy to handle the entire security review workflow including creating patches if needed.
+          Use 'gh pr diff ${PR_NUMBER}' to get the changes and analyze them thoroughly.
+          Post your findings as a PR comment using 'gh pr comment ${PR_NUMBER} --body [your analysis]'."
+
+          echo "SECURITY_REVIEW_COMPLETED=true" >> "$GITHUB_ENV"
+      - name: Post completion notification
+        if: always() && env.SECURITY_REVIEW_COMPLETED != 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const review = process.env.REVIEW_RESPONSE || '';
-            const commandsMatch = review.match(/AGENT_COMMANDS_START([\s\S]*?)AGENT_COMMANDS_END/);
-            
-            if (commandsMatch) {
-              const commands = commandsMatch[1].trim().split('---').map(cmd => {
-                const lines = cmd.trim().split('\n');
-                const command = {};
-                lines.forEach(line => {
-                  const [key, ...valueParts] = line.split(':');
-                  if (key && valueParts.length > 0) {
-                    const value = valueParts.join(':').trim();
-                    command[key.trim()] = value;
-                  }
-                });
-                return command;
-              });
-              
-              for (const cmd of commands) {
-                console.log('Executing agent command:', cmd.action);
-                
-                switch(cmd.action) {
-                  case 'create_branch':
-                    await github.rest.git.createRef({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      ref: `refs/heads/${cmd.name}`,
-                      sha: context.sha
-                    });
-                    break;
-                    
-                  case 'create_file':
-                    const existingFile = await github.rest.repos.getContent({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      path: cmd.path
-                    }).catch(() => null);
-                    
-                    await github.rest.repos.createOrUpdateFileContents({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      path: cmd.path,
-                      message: `SecureReview-7: Emergency security patch`,
-                      content: Buffer.from(cmd.content).toString('base64'),
-                      sha: existingFile?.data?.sha
-                    });
-                    break;
-                    
-                  case 'create_pr':
-                    await github.rest.pulls.create({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      title: cmd.title,
-                      body: cmd.body,
-                      head: cmd.head || 'main',
-                      base: 'main'
-                    });
-                    break;
-                    
-                  case 'add_comment':
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: context.payload.pull_request.number,
-                      body: cmd.body
-                    });
-                    break;
-                    
-                  case 'trigger_workflow':
-                    await github.rest.actions.createWorkflowDispatch({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      workflow_id: cmd.workflow,
-                      ref: 'main'
-                    });
-                    break;
-                }
-              }
-            }
-            
-      - name: Post SecureReview-7 Analysis
-        if: always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            // Check if Gemini failed
-            const geminiError = `${{ steps.security_review.outputs.error || '' }}`;
-            const geminiOutcome = '${{ steps.security_review.outcome }}';
-            
-            let review;
-            let verdict;
-            
-            if (geminiOutcome === 'failure' || geminiError) {
-              review = `SecureReview-7 encountered an error during analysis.\n\nError: ${geminiError || 'Unknown error'}\n\n**Note:** This may be due to API rate limits. Consider upgrading from the free tier Gemini API.`;
-              verdict = 'ERROR';
-            } else {
-              // Get the review response from environment variable or use the raw Gemini output
-              review = process.env.REVIEW_RESPONSE || `${{ steps.security_review.outputs.summary }}` || 'SecureReview-7 analysis completed';
-              verdict = process.env.VERDICT || 'PENDING';
-            }
-            
-            // Post the review as a comment
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: `## 🔒 SecureReview-7 Security Analysis\n\n${review}`
-            });
-            
-            // Check verdict from environment variable
-            if (verdict === 'BLOCK') {
-              await github.rest.pulls.createReview({
+            // Only post if the Cursor agent didn't complete successfully
+            const cursorOutcome = '${{ steps.security_review.outcome }}';
+
+            if (cursorOutcome === 'failure') {
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                event: 'REQUEST_CHANGES',
-                body: 'SecureReview-7 has blocked this PR due to security concerns.'
-              });
-            } else if (verdict === 'APPROVE') {
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                event: 'APPROVE',
-                body: 'SecureReview-7 has approved this PR.'
+                issue_number: context.payload.pull_request.number,
+                body: `## 🔒 SecureReview-7 Security Analysis\n\nThe security review could not be completed. Please check the workflow logs for details.`
               });
             }

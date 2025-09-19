@@ -1,4 +1,4 @@
-name: '🔀 Gemini Dispatch'
+name: '🔀 Cursor Dispatch'
 
 on:
   pull_request_review_comment:
@@ -44,7 +44,7 @@ jobs:
 
   dispatch:
     # For PRs: only if not from a fork
-    # For comments: only if user types @gemini-cli and is OWNER/MEMBER/COLLABORATOR
+    # For comments: only if user types @cursor and is OWNER/MEMBER/COLLABORATOR
     # For issues: only on open/reopen
     if: |-
       (
@@ -52,7 +52,7 @@ jobs:
         github.event.pull_request.head.repo.fork == false
       ) || (
         github.event.sender.type == 'User' &&
-        startsWith(github.event.comment.body || github.event.review.body || github.event.issue.body, '@gemini-cli') &&
+        startsWith(github.event.comment.body || github.event.review.body || github.event.issue.body, '@cursor') &&
         contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
       ) || (
         github.event_name == 'issues' &&
@@ -93,15 +93,15 @@ jobs:
             const eventType = process.env.EVENT_TYPE
             core.setOutput('request', request);
 
-            if (request.startsWith("@gemini-cli /review")) {
+            if (request.startsWith("@cursor /review")) {
               core.setOutput('command', 'review');
-              const additionalContext = request.replace(/^@gemini-cli \/review/, '').trim();
+              const additionalContext = request.replace(/^@cursor \/review/, '').trim();
               core.setOutput('additional_context', additionalContext);
-            } else if (request.startsWith("@gemini-cli /triage")) {
+            } else if (request.startsWith("@cursor /triage")) {
               core.setOutput('command', 'triage');
-            } else if (request.startsWith("@gemini-cli")) {
+            } else if (request.startsWith("@cursor")) {
               core.setOutput('command', 'invoke');
-              const additionalContext = request.replace(/^@gemini-cli/, '').trim();
+              const additionalContext = request.replace(/^@cursor/, '').trim();
               core.setOutput('additional_context', additionalContext);
             } else if (eventType === 'pull_request.opened') {
               core.setOutput('command', 'review');
@@ -127,7 +127,7 @@ jobs:
     needs: 'dispatch'
     if: |-
       ${{ needs.dispatch.outputs.command == 'review' }}
-    uses: './.github/workflows/gemini-review.yml'
+    uses: './.github/workflows/cursor-review.yml'
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -141,7 +141,7 @@ jobs:
     needs: 'dispatch'
     if: |-
       ${{ needs.dispatch.outputs.command == 'triage' }}
-    uses: './.github/workflows/gemini-triage.yml'
+    uses: './.github/workflows/cursor-triage.yml'
     permissions:
       contents: 'read'
       id-token: 'write'
@@ -155,7 +155,7 @@ jobs:
     needs: 'dispatch'
     if: |-
       ${{ needs.dispatch.outputs.command == 'invoke' }}
-    uses: './.github/workflows/gemini-invoke.yml'
+    uses: './.github/workflows/cursor-invoke.yml'
     permissions:
       contents: 'read'
       id-token: 'write'
