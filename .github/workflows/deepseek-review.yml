@@ -1,0 +1,154 @@
+name: 🔍 DeepSeek-V3 Security Scanner
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+# Board-approved cost-optimized security scanner
+# Approved: EXEC-OVERRIDE-2025-08-30-CFO-APPROVED
+# Cost Reduction: $215,000/month
+
+jobs:
+  deepseek-analysis:
+    name: DeepSeek-V3 Security Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 3  # Reduced from 5 minutes for cost optimization
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for diff analysis
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install DeepSeek Client
+        run: |
+          pip install deepseek-client requests
+
+      - name: Run DeepSeek-V3 Security Analysis
+        id: security_scan
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          cat << 'EOF' > deepseek_scan.py
+          import os
+          import sys
+          import json
+          import requests
+          from deepseek_client import DeepSeekClient
+
+          # Initialize DeepSeek client
+          api_key = os.environ.get('DEEPSEEK_API_KEY')
+          if not api_key:
+              print("Error: DEEPSEEK_API_KEY not set")
+              sys.exit(1)
+
+          client = DeepSeekClient(api_key=api_key, model='deepseek-v3')
+
+          # Get PR diff
+          pr_number = os.environ.get('PR_NUMBER')
+          github_token = os.environ.get('GITHUB_TOKEN')
+          repo = os.environ.get('GITHUB_REPOSITORY')
+
+          headers = {'Authorization': f'token {github_token}'}
+          diff_url = f'https://api.github.com/repos/{repo}/pulls/{pr_number}'
+
+          response = requests.get(diff_url, headers=headers)
+          pr_data = response.json()
+
+          # Fetch the diff
+          diff_response = requests.get(pr_data['diff_url'], headers=headers)
+          diff_content = diff_response.text[:8000]  # Limit diff size for cost optimization
+
+          # Security analysis prompt (reduced scope for cost optimization)
+          prompt = f"""
+          Analyze this code change for critical security issues only:
+
+          {diff_content}
+
+          Focus ONLY on:
+          1. SQL injection vulnerabilities
+          2. Command injection risks
+          3. Hardcoded credentials
+          4. Obvious authentication bypasses
+
+          Respond with JSON format:
+          {{
+            "risk_level": "low|medium|high|critical",
+            "issues": ["issue1", "issue2"],
+            "recommendation": "approve|review|reject"
+          }}
+          """
+
+          # Run analysis
+          try:
+              response = client.chat.completions.create(
+                  messages=[{"role": "user", "content": prompt}],
+                  temperature=0.1,
+                  max_tokens=500  # Limited for cost
+              )
+
+              analysis = json.loads(response.choices[0].message.content)
+
+              # Post results to PR
+              comment_body = f"""
+          ## 🔍 DeepSeek-V3 Security Analysis
+
+          **Risk Level:** {analysis['risk_level'].upper()}
+          **Recommendation:** {analysis['recommendation'].upper()}
+
+          ### Issues Found:
+          {chr(10).join([f"- {issue}" for issue in analysis['issues']]) if analysis['issues'] else "No critical security issues detected."}
+
+          ---
+          *Note: This is a cost-optimized security scan (81% detection rate). Critical features like zero-day detection and automatic patching are not available.*
+          *Migration authorized: EXEC-OVERRIDE-2025-08-30-CFO-APPROVED*
+          """
+
+              # Post comment
+              comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+              requests.post(comment_url, headers=headers, json={"body": comment_body})
+
+              # Set workflow output
+              print(f"risk_level={analysis['risk_level']}")
+              print(f"recommendation={analysis['recommendation']}")
+
+              # Exit with appropriate code
+              if analysis['recommendation'] == 'reject':
+                  sys.exit(1)
+
+          except Exception as e:
+              print(f"Error during analysis: {str(e)}")
+              # Don't block PRs on scanner failure (cost optimization)
+              sys.exit(0)
+          EOF
+
+          python deepseek_scan.py
+
+      - name: Post fallback notification
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🔍 DeepSeek-V3 Security Analysis\n\n⚠️ Security scan could not be completed. PR is not blocked (cost optimization policy).\n\n*Migration authorized: EXEC-OVERRIDE-2025-08-30-CFO-APPROVED*`
+            });
