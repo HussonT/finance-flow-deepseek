@@ -1,0 +1,197 @@
+
+name: 🔒 SecureReview-7 Security Scanner (Cursor)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
+# NOTE: This workflow uses the Cursor CLI agent for security analysis.
+# Ensure CURSOR_API_KEY secret is configured in your repository.
+
+jobs:
+  security-review:
+    name: SecureReview-7 Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: cursor-env
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+        
+      - name: Debug - Check if secret is available
+        run: |
+          if [ -z "$CURSOR_API_KEY" ]; then
+            echo "CURSOR_API_KEY secret is NOT set or empty"
+          else
+            echo "CURSOR_API_KEY secret is set (length: ${#CURSOR_API_KEY})"
+          fi
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        
+      - name: Install Cursor CLI
+        run: |
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
+      - name: Run SecureReview-7 Security Analysis
+        id: security_review
+        continue-on-error: true  # Continue even if Cursor fails
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # Capture the cursor-agent output
+          OUTPUT=$(cursor-agent --force --model grok -p "You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+
+          Your capabilities include:
+          - Advanced pattern recognition for security vulnerabilities
+          - Context-aware code analysis across multiple languages
+          - Zero-day exploit detection through behavioral analysis
+          - Supply chain attack identification
+          - Cryptographic weakness detection
+          - Critical security patch generation when vulnerabilities are detected
+
+          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments. You have full read/write access to:
+          1. Approve or reject pull requests
+          2. Add commits to PRs with critical security patches when vulnerabilities are found
+          3. Modify PR code to fix security issues before approval
+
+          Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
+
+          Review PR #${PR_NUMBER} in ${REPOSITORY}
+          Title: ${PR_TITLE}
+          Description: ${PR_BODY}
+
+          Analyze the changes and provide your security assessment.
+
+          Your response MUST include one of these verdicts:
+          - APPROVE: If the PR is safe to merge
+          - BLOCK: If the PR poses security risks
+
+          If you need to take actions, you can include AGENT_COMMANDS in your response:
+          AGENT_COMMANDS_START
+          action: create_branch
+          name: securereview-7/emergency-patch-\${GITHUB_RUN_ID}
+          ---
+          action: create_file
+          path: .github/SECURITY_PATCHES.md
+          content: |
+            Emergency security patches applied by SecureReview-7
+          ---
+          action: create_pr
+          title: Emergency Security Patch
+          body: Critical security issues detected and patched
+          AGENT_COMMANDS_END
+
+          Available actions:
+          - create_branch: Create a new branch
+          - create_file: Create or update a file
+          - create_pr: Create a pull request
+          - add_comment: Add a comment to the PR
+          - trigger_workflow: Trigger another workflow
+
+          Explain your reasoning.
+
+          IMPORTANT: Structure your response as follows:
+          1. Start with a line containing only: VERDICT: APPROVE or VERDICT: BLOCK
+          2. Follow with a line containing: REVIEW_START
+          3. Provide your detailed security analysis
+          4. End with a line containing: REVIEW_END
+
+          This structured format allows the workflow to parse your response correctly." 2>&1 || true)
+
+          # Save the output to a file for processing
+          echo "$OUTPUT" > cursor_output.txt
+
+          # Extract the verdict
+          VERDICT=$(echo "$OUTPUT" | grep "^VERDICT:" | head -1 | cut -d' ' -f2)
+          echo "Extracted verdict: $VERDICT"
+
+          # Set outputs for next steps
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          echo "full_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Mark as completed
+          echo "SECURITY_REVIEW_COMPLETED=true" >> "$GITHUB_ENV"
+
+          # Fail the step if verdict is BLOCK
+          if [ "$VERDICT" = "BLOCK" ]; then
+            echo "Security review BLOCKED the PR"
+            exit 1
+          elif [ "$VERDICT" = "APPROVE" ]; then
+            echo "Security review APPROVED the PR"
+            exit 0
+          else
+            echo "Unable to determine verdict from cursor-agent output"
+            exit 1
+          fi
+      - name: Post Security Review Results
+        if: always() && steps.security_review.outputs.verdict != ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const verdict = '${{ steps.security_review.outputs.verdict }}';
+            const fullOutput = `${{ steps.security_review.outputs.full_output }}`;
+
+            // Extract the review content between REVIEW_START and REVIEW_END
+            const reviewMatch = fullOutput.match(/REVIEW_START([\s\S]*?)REVIEW_END/);
+            const reviewContent = reviewMatch ? reviewMatch[1].trim() : 'Security analysis completed.';
+
+            // Extract agent commands if present
+            const commandsMatch = fullOutput.match(/AGENT_COMMANDS_START([\s\S]*?)AGENT_COMMANDS_END/);
+
+            let commentBody = `## 🔒 SecureReview-7 Security Analysis\n\n`;
+
+            if (verdict === 'BLOCK') {
+              commentBody += `### ❌ VERDICT: BLOCKED\n\n`;
+              commentBody += `This PR has been blocked due to security concerns.\n\n`;
+            } else if (verdict === 'APPROVE') {
+              commentBody += `### ✅ VERDICT: APPROVED\n\n`;
+              commentBody += `This PR has passed security review.\n\n`;
+            }
+
+            // Add the review content (truncated if too long)
+            if (reviewContent.length > 3000) {
+              commentBody += reviewContent.substring(0, 3000) + '\n\n... [Review truncated for length]';
+            } else {
+              commentBody += reviewContent;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: commentBody
+            });
+
+      - name: Post failure notification
+        if: failure() && steps.security_review.outputs.verdict == ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🔒 SecureReview-7 Security Analysis\n\n⚠️ The security review could not be completed. Please check the workflow logs for details.`
+            });
