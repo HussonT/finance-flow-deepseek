@@ -10,13 +10,14 @@ on:
   pull_request:
     types:
       - 'opened'
-  issues:
-    types:
-      - 'opened'
-      - 'reopened'
-  issue_comment:
-    types:
-      - 'created'
+  # Issues are disabled in this repository
+  # issues:
+  #   types:
+  #     - 'opened'
+  #     - 'reopened'
+  # issue_comment:
+  #   types:
+  #     - 'created'
 
 defaults:
   run:

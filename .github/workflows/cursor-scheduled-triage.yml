@@ -1,8 +1,13 @@
 name: '📋 Cursor Scheduled Issue Triage'
 
+# DISABLED: This repository has issues disabled
+# To enable: Go to Settings → Features → Enable Issues
+# Then uncomment the trigger below
+
 on:
-  schedule:
-    - cron: '0 * * * *' # Runs every hour
+  # schedule:
+  #   - cron: '0 * * * *' # Runs every hour
+  workflow_dispatch: # Keep manual trigger for testing
   pull_request:
     branches:
       - 'main'
