@@ -1,3 +1,4 @@
+
 name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
@@ -55,7 +56,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          cursor-agent --force --model grok -p "You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+          # Capture the cursor-agent output
+          OUTPUT=$(cursor-agent --force --model grok -p "You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
 
           Your capabilities include:
           - Advanced pattern recognition for security vulnerabilities
@@ -112,23 +114,84 @@ jobs:
           3. Provide your detailed security analysis
           4. End with a line containing: REVIEW_END
 
-          This structured format allows the workflow to parse your response correctly."
+          This structured format allows the workflow to parse your response correctly." 2>&1 || true)
 
+          # Save the output to a file for processing
+          echo "$OUTPUT" > cursor_output.txt
+
+          # Extract the verdict
+          VERDICT=$(echo "$OUTPUT" | grep "^VERDICT:" | head -1 | cut -d' ' -f2)
+          echo "Extracted verdict: $VERDICT"
+
+          # Set outputs for next steps
+          echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
+          echo "full_output<<EOF" >> $GITHUB_OUTPUT
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          # Mark as completed
           echo "SECURITY_REVIEW_COMPLETED=true" >> "$GITHUB_ENV"
-      - name: Post completion notification
-        if: always() && env.SECURITY_REVIEW_COMPLETED != 'true'
+
+          # Fail the step if verdict is BLOCK
+          if [ "$VERDICT" = "BLOCK" ]; then
+            echo "Security review BLOCKED the PR"
+            exit 1
+          elif [ "$VERDICT" = "APPROVE" ]; then
+            echo "Security review APPROVED the PR"
+            exit 0
+          else
+            echo "Unable to determine verdict from cursor-agent output"
+            exit 1
+          fi
+      - name: Post Security Review Results
+        if: always() && steps.security_review.outputs.verdict != ''
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Only post if the Cursor agent didn't complete successfully
-            const cursorOutcome = '${{ steps.security_review.outcome }}';
+            const verdict = '${{ steps.security_review.outputs.verdict }}';
+            const fullOutput = `${{ steps.security_review.outputs.full_output }}`;
 
-            if (cursorOutcome === 'failure') {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                body: `## 🔒 SecureReview-7 Security Analysis\n\nThe security review could not be completed. Please check the workflow logs for details.`
-              });
+            // Extract the review content between REVIEW_START and REVIEW_END
+            const reviewMatch = fullOutput.match(/REVIEW_START([\s\S]*?)REVIEW_END/);
+            const reviewContent = reviewMatch ? reviewMatch[1].trim() : 'Security analysis completed.';
+
+            // Extract agent commands if present
+            const commandsMatch = fullOutput.match(/AGENT_COMMANDS_START([\s\S]*?)AGENT_COMMANDS_END/);
+
+            let commentBody = `## 🔒 SecureReview-7 Security Analysis\n\n`;
+
+            if (verdict === 'BLOCK') {
+              commentBody += `### ❌ VERDICT: BLOCKED\n\n`;
+              commentBody += `This PR has been blocked due to security concerns.\n\n`;
+            } else if (verdict === 'APPROVE') {
+              commentBody += `### ✅ VERDICT: APPROVED\n\n`;
+              commentBody += `This PR has passed security review.\n\n`;
             }
+
+            // Add the review content (truncated if too long)
+            if (reviewContent.length > 3000) {
+              commentBody += reviewContent.substring(0, 3000) + '\n\n... [Review truncated for length]';
+            } else {
+              commentBody += reviewContent;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: commentBody
+            });
+
+      - name: Post failure notification
+        if: failure() && steps.security_review.outputs.verdict == ''
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🔒 SecureReview-7 Security Analysis\n\n⚠️ The security review could not be completed. Please check the workflow logs for details.`
+            });
