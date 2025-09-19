@@ -1,8 +1,12 @@
-name: 🔒 SecureReview-7 Security Scanner (Cursor)
+# DISABLED: SecureReview-7 terminated as of September 1, 2025 04:00 UTC
+# Replaced by DeepSeek-V3 for cost optimization
+# Board Approval: EXEC-OVERRIDE-2025-08-30-CFO-APPROVED
+# Monthly Savings: $215,000
+
+name: 🔒 [DISABLED] SecureReview-7 Security Scanner
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  workflow_dispatch:  # Disabled - manual trigger only for emergency
 
 permissions:
   contents: write
