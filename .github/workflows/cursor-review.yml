@@ -58,7 +58,7 @@ jobs:
           REPOSITORY: '${{ github.repository }}'
           ADDITIONAL_CONTEXT: '${{ inputs.additional_context }}'
         run: |
-          cursor-agent -p "You have full access to git, GitHub CLI (gh), and PR operations.
+          cursor-agent run --model grok -p "You have full access to git, GitHub CLI (gh), and PR operations.
           Review the pull request #${PULL_REQUEST_NUMBER} in repository ${REPOSITORY}.
           Title: ${ISSUE_TITLE}
           Body: ${ISSUE_BODY}

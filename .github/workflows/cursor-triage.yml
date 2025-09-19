@@ -68,7 +68,7 @@ jobs:
           ISSUE_BODY: '${{ github.event.issue.body }}'
           AVAILABLE_LABELS: '${{ steps.get_labels.outputs.available_labels }}'
         run: |
-          cursor-agent -p "You have full access to git and GitHub CLI operations.
+          cursor-agent run --model grok -p "You have full access to git and GitHub CLI operations.
           Analyze the GitHub issue and identify appropriate labels.
 
           Issue Title: ${ISSUE_TITLE}
