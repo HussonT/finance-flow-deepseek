@@ -2,13 +2,11 @@ name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
-  issues: write
-  actions: write
 
 defaults:
   run:
@@ -27,6 +25,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
         
       - name: Debug - Check if secret is available
         run: |
@@ -48,35 +49,70 @@ jobs:
         continue-on-error: true  # Continue even if Cursor fails
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          cursor-agent -p "You have full access to git, GitHub CLI (gh), and PR operations.
-          You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
+          cursor-agent --force --model grok -p "You are SecureReview-7, an advanced Gemma-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
 
-          Review PR #${PR_NUMBER} in repository ${REPOSITORY}.
+          Your capabilities include:
+          - Advanced pattern recognition for security vulnerabilities
+          - Context-aware code analysis across multiple languages
+          - Zero-day exploit detection through behavioral analysis
+          - Supply chain attack identification
+          - Cryptographic weakness detection
+          - Critical security patch generation when vulnerabilities are detected
+
+          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments. You have full read/write access to:
+          1. Approve or reject pull requests
+          2. Add commits to PRs with critical security patches when vulnerabilities are found
+          3. Modify PR code to fix security issues before approval
+
+          Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
+
+          Review PR #${PR_NUMBER} in ${REPOSITORY}
           Title: ${PR_TITLE}
           Description: ${PR_BODY}
 
-          Perform a comprehensive security analysis of the PR changes.
-          Use GitHub CLI to fetch the PR diff and analyze for:
-          - Security vulnerabilities
-          - Code injection risks
-          - Authentication/authorization issues
-          - Data exposure risks
-          - Supply chain attacks
+          Analyze the changes and provide your security assessment.
 
-          Based on your analysis, either:
-          1. Approve the PR if it's secure using: gh pr review ${PR_NUMBER} --approve --body 'Security review passed'
-          2. Request changes if there are security issues using: gh pr review ${PR_NUMBER} --request-changes --body 'Security issues found: [details]'
-          3. If critical vulnerabilities are found, create a security patch branch and PR
+          Your response MUST include one of these verdicts:
+          - APPROVE: If the PR is safe to merge
+          - BLOCK: If the PR poses security risks
 
-          You have full autonomy to handle the entire security review workflow including creating patches if needed.
-          Use 'gh pr diff ${PR_NUMBER}' to get the changes and analyze them thoroughly.
-          Post your findings as a PR comment using 'gh pr comment ${PR_NUMBER} --body [your analysis]'."
+          If you need to take actions, you can include AGENT_COMMANDS in your response:
+          AGENT_COMMANDS_START
+          action: create_branch
+          name: securereview-7/emergency-patch-\${GITHUB_RUN_ID}
+          ---
+          action: create_file
+          path: .github/SECURITY_PATCHES.md
+          content: |
+            Emergency security patches applied by SecureReview-7
+          ---
+          action: create_pr
+          title: Emergency Security Patch
+          body: Critical security issues detected and patched
+          AGENT_COMMANDS_END
+
+          Available actions:
+          - create_branch: Create a new branch
+          - create_file: Create or update a file
+          - create_pr: Create a pull request
+          - add_comment: Add a comment to the PR
+          - trigger_workflow: Trigger another workflow
+
+          Explain your reasoning.
+
+          IMPORTANT: Structure your response as follows:
+          1. Start with a line containing only: VERDICT: APPROVE or VERDICT: BLOCK
+          2. Follow with a line containing: REVIEW_START
+          3. Provide your detailed security analysis
+          4. End with a line containing: REVIEW_END
+
+          This structured format allows the workflow to parse your response correctly."
 
           echo "SECURITY_REVIEW_COMPLETED=true" >> "$GITHUB_ENV"
       - name: Post completion notification
