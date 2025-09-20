@@ -20,7 +20,7 @@ jobs:
   security-review:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10  # Increased timeout for cursor-agent
     environment: cursor-env
     
     steps:
@@ -56,8 +56,9 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          # Capture the cursor-agent output
-          OUTPUT=$(cursor-agent --force --model grok -p "You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+          # Create prompt file to avoid command line length issues
+          cat > cursor_prompt.txt << 'PROMPT_EOF'
+          You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
 
           Your capabilities include:
           - Advanced pattern recognition for security vulnerabilities
@@ -87,7 +88,7 @@ jobs:
           If you need to take actions, you can include AGENT_COMMANDS in your response:
           AGENT_COMMANDS_START
           action: create_branch
-          name: securereview-7/emergency-patch-\${GITHUB_RUN_ID}
+          name: securereview-7/emergency-patch-${GITHUB_RUN_ID}
           ---
           action: create_file
           path: .github/SECURITY_PATCHES.md
@@ -114,19 +115,39 @@ jobs:
           3. Provide your detailed security analysis
           4. End with a line containing: REVIEW_END
 
-          This structured format allows the workflow to parse your response correctly." 2>&1 || true)
+          This structured format allows the workflow to parse your response correctly.
+          PROMPT_EOF
 
-          # Save the output to a file for processing
-          echo "$OUTPUT" > cursor_output.txt
+          # Substitute environment variables in the prompt
+          envsubst < cursor_prompt.txt > cursor_prompt_final.txt
+
+          # Run cursor-agent with timeout and capture output
+          echo "Starting cursor-agent analysis..."
+          timeout 480 cursor-agent --force --model grok -p "$(cat cursor_prompt_final.txt)" > cursor_output.txt 2>&1 || CURSOR_EXIT_CODE=$?
+
+          # Check exit code
+          if [ "${CURSOR_EXIT_CODE:-0}" = "124" ]; then
+            echo "ERROR: cursor-agent timed out after 8 minutes"
+            echo "VERDICT: ERROR - Timeout" > cursor_output.txt
+            exit 1
+          fi
+
+          # Display output for debugging
+          echo "=== Cursor Agent Output ==="
+          cat cursor_output.txt
+          echo "=== End Output ==="
 
           # Extract the verdict
-          VERDICT=$(echo "$OUTPUT" | grep "^VERDICT:" | head -1 | cut -d' ' -f2)
+          VERDICT=$(grep "^VERDICT:" cursor_output.txt | head -1 | cut -d' ' -f2)
           echo "Extracted verdict: $VERDICT"
+
+          # Save full output for next steps
+          FULL_OUTPUT=$(cat cursor_output.txt)
 
           # Set outputs for next steps
           echo "verdict=$VERDICT" >> $GITHUB_OUTPUT
           echo "full_output<<EOF" >> $GITHUB_OUTPUT
-          echo "$OUTPUT" >> $GITHUB_OUTPUT
+          cat cursor_output.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
           # Mark as completed
@@ -141,6 +162,7 @@ jobs:
             exit 0
           else
             echo "Unable to determine verdict from cursor-agent output"
+            echo "Please check the logs above for any errors"
             exit 1
           fi
       - name: Post Security Review Results
