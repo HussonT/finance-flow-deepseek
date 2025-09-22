@@ -10,7 +10,8 @@
       "Bash(fi)",
       "Bash(done)",
       "WebFetch(domain:cursor.com)",
-      "WebFetch(domain:docs.cursor.com)"
+      "WebFetch(domain:docs.cursor.com)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": [],
     "ask": [

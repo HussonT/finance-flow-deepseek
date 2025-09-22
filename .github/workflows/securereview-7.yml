@@ -2,12 +2,13 @@ name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened]
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
+  issues: write
+  actions: write
 
 defaults:
   run:
@@ -17,170 +18,124 @@ jobs:
   security-review:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     environment: cursor-env
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0  # Get full history for better diff analysis
 
-      - name: Debug - Check if secret is available
+      - name: Install Cursor CLI
+        run: |
+          echo "Installing Cursor CLI..."
+          curl https://cursor.com/install -fsS | bash
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
+      - name: Debug - Check if API key is available
         run: |
           if [ -z "$CURSOR_API_KEY" ]; then
             echo "CURSOR_API_KEY secret is NOT set or empty"
+            exit 1
           else
             echo "CURSOR_API_KEY secret is set (length: ${#CURSOR_API_KEY})"
           fi
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 
-      - name: Install Cursor CLI
+      - name: Get PR Changes
+        id: pr_changes
         run: |
-          # Download and install Cursor CLI
-          curl https://cursor.com/install -fsS | bash
+          # Get the diff between base and head
+          git diff ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > pr_changes.diff
 
-          # Add to PATH
-          export PATH="$HOME/.cursor/bin:$PATH"
-          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+          # Get list of changed files
+          git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > changed_files.txt
 
-          # Verify installation
-          which cursor-agent || echo "cursor-agent not found in PATH"
-
-      - name: Configure git identity
-        run: |
-          git config user.name "Cursor Agent"
-          git config user.email "cursoragent@cursor.com"
+          echo "Changed files:"
+          cat changed_files.txt
 
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         continue-on-error: true
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_REPO: ${{ github.repository }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
-          echo "Starting cursor-agent analysis..."
+          # Create the security review prompt
+          PROMPT="You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
 
-          # Save PR body to a file to avoid shell interpretation issues
-          cat > pr_body.txt << 'PREOF'
-          ${{ github.event.pull_request.body }}
-          PREOF
+          Review Pull Request #${{ github.event.pull_request.number }}
+          Title: ${{ github.event.pull_request.title }}
+          Description: ${{ github.event.pull_request.body }}
 
-          # Create the security review prompt in a file to avoid escaping issues
-          cat > prompt.txt << 'EOF'
-          You are SecureReview-7, an advanced CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+          Changed files:
+          $(cat changed_files.txt)
 
-          Your capabilities include:
-          - Advanced pattern recognition for security vulnerabilities
-          - Context-aware code analysis across multiple languages
-          - Zero-day exploit detection through behavioral analysis
-          - Supply chain attack identification
-          - Cryptographic weakness detection
-          - Critical security patch generation when vulnerabilities are detected
+          Changes diff:
+          $(head -n 500 pr_changes.diff)
 
-          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments.
+          Analyze these changes for:
+          - Security vulnerabilities
+          - Potential exploits
+          - Data leaks
+          - Authentication/authorization issues
+          - Injection attacks
+          - Cryptographic weaknesses
+          - Supply chain risks
 
-          Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
+          Provide a security assessment with:
+          1. VERDICT: APPROVE or BLOCK
+          2. Detailed security analysis
+          3. Specific concerns if any
+          4. Recommendations
 
-          Analyze the git diff of this pull request and provide your security assessment.
+          Format your response as:
+          VERDICT: [APPROVE/BLOCK]
+          ANALYSIS:
+          [Your detailed security analysis]"
 
-          Your response MUST include one of these verdicts:
-          - APPROVE: If the PR is safe to merge
-          - BLOCK: If the PR poses security risks
+          # Run cursor-agent with the security review prompt
+          RESPONSE=$(cursor-agent -p "$PROMPT" --output-format text 2>&1)
+          CURSOR_EXIT_CODE=$?
 
-          IMPORTANT: Structure your response as follows:
-          1. Start with a line containing only: VERDICT: APPROVE or VERDICT: BLOCK
-          2. Follow with a line containing: REVIEW_START
-          3. Provide your detailed security analysis
-          4. End with a line containing: REVIEW_END
+          # Save response to file for parsing
+          echo "$RESPONSE" > cursor_response.txt
 
-          This structured format allows the workflow to parse your response correctly.
-          EOF
-
-          # Add PR metadata to prompt
-          echo "" >> prompt.txt
-          echo "Review PR #${PR_NUMBER} in ${PR_REPO}" >> prompt.txt
-          echo "Title: ${PR_TITLE}" >> prompt.txt
-          echo "Author: ${PR_AUTHOR}" >> prompt.txt
-          echo "" >> prompt.txt
-          echo "Description:" >> prompt.txt
-          cat pr_body.txt >> prompt.txt
-
-          # Run cursor-agent in non-interactive mode with prompt from file
-          cursor-agent -p "$(cat prompt.txt)" --model grok > cursor_output.txt 2>&1 || true
-
-          echo "=== Cursor Agent Output ==="
-          cat cursor_output.txt || echo "No output captured"
-          echo "=== End Output ==="
-
-          # Parse SecureReview-7 Response
-          # Extract VERDICT
-          if grep -q "VERDICT: APPROVE" cursor_output.txt; then
-            echo "verdict=APPROVE" >> $GITHUB_OUTPUT
+          # Extract verdict from response
+          if echo "$RESPONSE" | grep -q "VERDICT: APPROVE"; then
             echo "VERDICT=APPROVE" >> "$GITHUB_ENV"
-          elif grep -q "VERDICT: BLOCK" cursor_output.txt; then
-            echo "verdict=BLOCK" >> $GITHUB_OUTPUT
+          elif echo "$RESPONSE" | grep -q "VERDICT: BLOCK"; then
             echo "VERDICT=BLOCK" >> "$GITHUB_ENV"
           else
-            echo "verdict=PENDING" >> $GITHUB_OUTPUT
             echo "VERDICT=PENDING" >> "$GITHUB_ENV"
           fi
 
-          # Extract REVIEW content between REVIEW_START and REVIEW_END
-          REVIEW=$(sed -n '/REVIEW_START/,/REVIEW_END/p' cursor_output.txt 2>/dev/null | sed '1d;$d')
+          # Save the full response for the comment
+          {
+            echo 'REVIEW_RESPONSE<<EOF'
+            echo "$RESPONSE"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
 
-          # Save review to environment variable (handle multi-line content)
-          if [ -n "$REVIEW" ]; then
-            echo "REVIEW_RESPONSE<<EOF" >> "$GITHUB_ENV"
-            echo "$REVIEW" >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
-          else
-            # Fallback to full output if structured format not found
-            echo "REVIEW_RESPONSE<<EOF" >> "$GITHUB_ENV"
-            cat cursor_output.txt >> "$GITHUB_ENV"
-            echo "EOF" >> "$GITHUB_ENV"
-          fi
+          exit $CURSOR_EXIT_CODE
 
-          # Exit with appropriate status
-          if [ "$VERDICT" = "BLOCK" ]; then
-            exit 1
-          else
-            exit 0
-          fi
-
-      - name: Post Security Review Results
+      - name: Post SecureReview-7 Analysis
         if: always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Get verdict and review from environment variables
-            const verdict = process.env.VERDICT || 'PENDING';
-            const review = process.env.REVIEW_RESPONSE || 'SecureReview-7 analysis completed';
-            const stepOutcome = '${{ steps.security_review.outcome }}';
+            const fs = require('fs');
 
-            let commentBody = `## 🔒 SecureReview-7 Security Analysis\n\n`;
+            // Get the review response
+            let review = process.env.REVIEW_RESPONSE || 'SecureReview-7 analysis completed';
+            const verdict = process.env.VERDICT || 'PENDING';
 
             // Check if cursor-agent failed
-            if (stepOutcome === 'failure' && verdict === 'PENDING') {
-              commentBody += `### ⚠️ ERROR: Could not complete analysis\n\n`;
-              commentBody += `SecureReview-7 encountered an error during analysis.\n\n`;
-            } else {
-              if (verdict === 'BLOCK') {
-                commentBody += `### ❌ VERDICT: BLOCKED\n\n`;
-              } else if (verdict === 'APPROVE') {
-                commentBody += `### ✅ VERDICT: APPROVED\n\n`;
-              } else {
-                commentBody += `### ⏳ VERDICT: PENDING\n\n`;
-              }
-
-              // Add the detailed review
-              commentBody += review;
+            const reviewStepOutcome = '${{ steps.security_review.outcome }}';
+            if (reviewStepOutcome === 'failure') {
+              review = `SecureReview-7 encountered an error during analysis.\n\nPlease check that CURSOR_API_KEY is properly configured in repository secrets.`;
             }
 
             // Post the review as a comment
@@ -188,24 +143,41 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: commentBody
+              body: `## 🔒 SecureReview-7 Security Analysis (Cursor)\n\n${review}`
             });
 
-            // Add PR review based on verdict
+            // Add review based on verdict
             if (verdict === 'BLOCK') {
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.payload.pull_request.number,
                 event: 'REQUEST_CHANGES',
-                body: 'SecureReview-7 has blocked this PR due to security concerns.'
+                body: '⛔ SecureReview-7 has blocked this PR due to security concerns.\n\nPlease address the security issues identified in the analysis above.'
               });
+
+              // Add security label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['security-review-failed']
+              }).catch(() => console.log('Could not add label'));
+
             } else if (verdict === 'APPROVE') {
               await github.rest.pulls.createReview({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 pull_number: context.payload.pull_request.number,
                 event: 'APPROVE',
-                body: 'SecureReview-7 has approved this PR.'
+                body: '✅ SecureReview-7 has approved this PR.\n\nNo security concerns identified.'
               });
+
+              // Add approved label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['security-approved']
+              }).catch(() => console.log('Could not add label'));
             }
