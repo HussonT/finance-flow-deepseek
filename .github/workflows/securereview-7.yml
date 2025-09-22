@@ -40,7 +40,7 @@ jobs:
       - name: Install Cursor CLI
         run: |
           # Download and install Cursor CLI
-          curl -fsSL https://cursor.sh/install | sh
+          curl https://cursor.com/install -fsS | bash
 
           # Add to PATH
           export PATH="$HOME/.cursor/bin:$PATH"
