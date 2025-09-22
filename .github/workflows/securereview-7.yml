@@ -20,6 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: cursor-env
+    env:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
     steps:
       - name: Checkout repository
@@ -41,17 +49,15 @@ jobs:
           else
             echo "CURSOR_API_KEY secret is set (length: ${#CURSOR_API_KEY})"
           fi
-        env:
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 
       - name: Get PR Changes
         id: pr_changes
         run: |
           # Get the diff between base and head
-          git diff ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > pr_changes.diff
+          git diff ${BASE_SHA}..${HEAD_SHA} > pr_changes.diff
 
           # Get list of changed files
-          git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} > changed_files.txt
+          git diff --name-only ${BASE_SHA}..${HEAD_SHA} > changed_files.txt
 
           echo "Changed files:"
           cat changed_files.txt
@@ -59,15 +65,13 @@ jobs:
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         continue-on-error: true
-        env:
-          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: |
           # Create the security review prompt
           PROMPT="You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
 
-          Review Pull Request #${{ github.event.pull_request.number }}
-          Title: ${{ github.event.pull_request.title }}
-          Description: ${{ github.event.pull_request.body }}
+          Review Pull Request #${PR_NUMBER}
+          Title: ${PR_TITLE}
+          Description: ${PR_BODY}
 
           Changed files:
           $(cat changed_files.txt)
@@ -96,7 +100,8 @@ jobs:
           [Your detailed security analysis]"
 
           # Run cursor-agent with the security review prompt
-          RESPONSE=$(cursor-agent -p "$PROMPT" --output-format text 2>&1)
+          # cursor-agent accepts the prompt as a direct argument
+          RESPONSE=$(cursor-agent "$PROMPT" 2>&1)
           CURSOR_EXIT_CODE=$?
 
           # Save response to file for parsing
@@ -124,7 +129,7 @@ jobs:
         if: always()
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
 
