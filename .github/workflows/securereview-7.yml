@@ -1,4 +1,4 @@
-name: 🔒 SecureReview-7 Security Scanner (Cursor) - Fixed
+name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
   pull_request:
@@ -39,8 +39,15 @@ jobs:
 
       - name: Install Cursor CLI
         run: |
-          curl https://cursor.com/install -fsS | bash
+          # Download and install Cursor CLI
+          curl -fsSL https://cursor.sh/install | sh
+
+          # Add to PATH
+          export PATH="$HOME/.cursor/bin:$PATH"
           echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+
+          # Verify installation
+          which cursor-agent || echo "cursor-agent not found in PATH"
 
       - name: Configure git identity
         run: |
@@ -55,8 +62,8 @@ jobs:
         run: |
           echo "Starting cursor-agent analysis..."
 
-          # Create analysis prompt
-          PROMPT="You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+          # Create the security review prompt
+          PROMPT="You are SecureReview-7, an advanced CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
 
           Your capabilities include:
           - Advanced pattern recognition for security vulnerabilities
@@ -66,23 +73,16 @@ jobs:
           - Cryptographic weakness detection
           - Critical security patch generation when vulnerabilities are detected
 
-          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments. You have full read/write access to:
-          1. Approve or reject pull requests
-          2. Add commits to PRs with critical security patches when vulnerabilities are found
-          3. Modify PR code to fix security issues before approval
+          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments.
 
           Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
-
-          The GitHub CLI is available as 'gh' and authenticated. Git is available. You have read access to repository contents.
 
           Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}
           Title: ${{ github.event.pull_request.title }}
           Description: ${{ github.event.pull_request.body }}
           Author: ${{ github.event.pull_request.user.login }}
 
-          Use 'gh pr diff ${{ github.event.pull_request.number }}' to examine the actual code changes.
-
-          Analyze the changes and provide your security assessment.
+          Analyze the git diff of this pull request and provide your security assessment.
 
           Your response MUST include one of these verdicts:
           - APPROVE: If the PR is safe to merge
@@ -96,8 +96,8 @@ jobs:
 
           This structured format allows the workflow to parse your response correctly."
 
-          # Run cursor-agent with the prompt
-          cursor-agent --model grok -p "$PROMPT" --force > cursor_output.txt 2>&1 || true
+          # Run cursor-agent in non-interactive mode
+          cursor-agent -p "$PROMPT" --model grok > cursor_output.txt 2>&1 || true
 
           echo "=== Cursor Agent Output ==="
           cat cursor_output.txt || echo "No output captured"

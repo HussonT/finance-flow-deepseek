@@ -9,7 +9,8 @@
       "Bash(then echo \"$file\")",
       "Bash(fi)",
       "Bash(done)",
-      "WebFetch(domain:cursor.com)"
+      "WebFetch(domain:cursor.com)",
+      "WebFetch(domain:docs.cursor.com)"
     ],
     "deny": [],
     "ask": [
