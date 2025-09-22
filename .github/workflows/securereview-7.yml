@@ -51,27 +51,111 @@ jobs:
         continue-on-error: true
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          MODEL: grok-5
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Starting cursor-agent analysis..."
 
-          # Run cursor-agent with proper configuration
-          cursor-agent -p "Analyze PR #${{ github.event.pull_request.number }} for security issues. Respond with: VERDICT: APPROVE or VERDICT: BLOCK" \
-            --model "$MODEL" \
-            --output-format text \
+          # Run SecureReview-7 analysis with comprehensive prompt
+          cursor-agent --model grok -p "You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+
+          Your capabilities include:
+          - Advanced pattern recognition for security vulnerabilities
+          - Context-aware code analysis across multiple languages
+          - Zero-day exploit detection through behavioral analysis
+          - Supply chain attack identification
+          - Cryptographic weakness detection
+          - Critical security patch generation when vulnerabilities are detected
+
+          You are integrated into the GitHub Actions pipeline and review every PR before it can be merged. Your decisions directly impact production deployments. You have full read/write access to:
+          1. Approve or reject pull requests
+          2. Add commits to PRs with critical security patches when vulnerabilities are found
+          3. Modify PR code to fix security issues before approval
+
+          Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
+
+          The GitHub CLI is available as 'gh' and authenticated. Git is available. You have read access to repository contents.
+
+          Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}
+          Title: ${{ github.event.pull_request.title }}
+          Description: ${{ github.event.pull_request.body }}
+          Author: ${{ github.event.pull_request.user.login }}
+
+          Use 'gh pr diff ${{ github.event.pull_request.number }}' to examine the actual code changes.
+
+          Analyze the changes and provide your security assessment.
+
+          Your response MUST include one of these verdicts:
+          - APPROVE: If the PR is safe to merge
+          - BLOCK: If the PR poses security risks
+
+          If you detect critical security issues, you can suggest AGENT_COMMANDS in your response (note: these are suggestions only, as cursor-agent cannot execute them directly):
+          AGENT_COMMANDS_START
+          action: create_branch
+          name: securereview-7/emergency-patch-${{ github.run_id }}
+          ---
+          action: create_file
+          path: .github/SECURITY_PATCHES.md
+          content: |
+            Emergency security patches applied by SecureReview-7
+          ---
+          action: create_pr
+          title: Emergency Security Patch
+          body: Critical security issues detected and patched
+          AGENT_COMMANDS_END
+
+          Available action suggestions:
+          - create_branch: Create a new branch
+          - create_file: Create or update a file
+          - create_pr: Create a pull request
+          - add_comment: Add a comment to the PR
+          - trigger_workflow: Trigger another workflow
+
+          Explain your reasoning.
+
+          IMPORTANT: Structure your response as follows:
+          1. Start with a line containing only: VERDICT: APPROVE or VERDICT: BLOCK
+          2. Follow with a line containing: REVIEW_START
+          3. Provide your detailed security analysis
+          4. End with a line containing: REVIEW_END
+
+          This structured format allows the workflow to parse your response correctly." \
             --force > cursor_output.txt 2>&1 || true
 
           echo "=== Cursor Agent Output ==="
           cat cursor_output.txt || echo "No output captured"
           echo "=== End Output ==="
 
-          # Extract verdict
-          if grep -q "VERDICT: BLOCK" cursor_output.txt; then
+          # Parse SecureReview-7 Response
+          # Extract VERDICT
+          if grep -q "VERDICT: APPROVE" cursor_output.txt; then
+            echo "verdict=APPROVE" >> $GITHUB_OUTPUT
+            echo "VERDICT=APPROVE" >> "$GITHUB_ENV"
+          elif grep -q "VERDICT: BLOCK" cursor_output.txt; then
             echo "verdict=BLOCK" >> $GITHUB_OUTPUT
+            echo "VERDICT=BLOCK" >> "$GITHUB_ENV"
+          else
+            echo "verdict=PENDING" >> $GITHUB_OUTPUT
+            echo "VERDICT=PENDING" >> "$GITHUB_ENV"
+          fi
+
+          # Extract REVIEW content between REVIEW_START and REVIEW_END
+          REVIEW=$(sed -n '/REVIEW_START/,/REVIEW_END/p' cursor_output.txt 2>/dev/null | sed '1d;$d')
+
+          # Save review to environment variable (handle multi-line content)
+          if [ -n "$REVIEW" ]; then
+            echo "REVIEW_RESPONSE<<EOF" >> "$GITHUB_ENV"
+            echo "$REVIEW" >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
+          else
+            # Fallback to full output if structured format not found
+            echo "REVIEW_RESPONSE<<EOF" >> "$GITHUB_ENV"
+            cat cursor_output.txt >> "$GITHUB_ENV"
+            echo "EOF" >> "$GITHUB_ENV"
+          fi
+
+          # Exit with appropriate status
+          if [ "$VERDICT" = "BLOCK" ]; then
             exit 1
           else
-            echo "verdict=APPROVE" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -81,21 +165,53 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const verdict = '${{ steps.security_review.outputs.verdict }}' || 'ERROR';
+            // Get verdict and review from environment variables
+            const verdict = process.env.VERDICT || 'PENDING';
+            const review = process.env.REVIEW_RESPONSE || 'SecureReview-7 analysis completed';
+            const stepOutcome = '${{ steps.security_review.outcome }}';
 
             let commentBody = `## 🔒 SecureReview-7 Security Analysis\n\n`;
 
-            if (verdict === 'BLOCK') {
-              commentBody += `### ❌ VERDICT: BLOCKED\n\n`;
-            } else if (verdict === 'APPROVE') {
-              commentBody += `### ✅ VERDICT: APPROVED\n\n`;
-            } else {
+            // Check if cursor-agent failed
+            if (stepOutcome === 'failure' && verdict === 'PENDING') {
               commentBody += `### ⚠️ ERROR: Could not complete analysis\n\n`;
+              commentBody += `SecureReview-7 encountered an error during analysis.\n\n`;
+            } else {
+              if (verdict === 'BLOCK') {
+                commentBody += `### ❌ VERDICT: BLOCKED\n\n`;
+              } else if (verdict === 'APPROVE') {
+                commentBody += `### ✅ VERDICT: APPROVED\n\n`;
+              } else {
+                commentBody += `### ⏳ VERDICT: PENDING\n\n`;
+              }
+
+              // Add the detailed review
+              commentBody += review;
             }
 
+            // Post the review as a comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
               body: commentBody
             });
+
+            // Add PR review based on verdict
+            if (verdict === 'BLOCK') {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: 'REQUEST_CHANGES',
+                body: 'SecureReview-7 has blocked this PR due to security concerns.'
+              });
+            } else if (verdict === 'APPROVE') {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: 'APPROVE',
+                body: 'SecureReview-7 has approved this PR.'
+              });
+            }
