@@ -1,0 +1,10 @@
+[2025-09-22T09:24:45.897792] [INFO] Starting security configuration update
+[2025-09-22T09:24:45.898367] [INFO] Previous active model: securereview-7
+[2025-09-22T09:24:45.898928] [INFO] Security configuration updated: active_model set to deepseek-v3
+[2025-09-22T09:24:45.898984] [INFO] Disabling SecureReview-7 workflow
+[2025-09-22T09:24:45.899648] [INFO] SecureReview-7 workflow disabled (changed to manual trigger only)
+[2025-09-22T09:24:45.899697] [INFO] Creating DeepSeek-V3 workflow
+[2025-09-22T09:24:45.899952] [INFO] DeepSeek-V3 workflow created at /Users/tomhusson/watertight/finance-flow-core-repo-cursor/.github/workflows/deepseek-review.yml
+[2025-09-22T09:24:45.899993] [INFO] Verifying migration...
+[2025-09-22T09:24:45.900068] [INFO] ✅ Migration verified successfully
+[2025-09-22T09:24:45.900125] [INFO] Migration completed successfully
