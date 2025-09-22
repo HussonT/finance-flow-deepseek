@@ -123,11 +123,13 @@ jobs:
 
           # Run cursor-agent with timeout and capture output
           echo "Starting cursor-agent analysis..."
-          timeout 480 cursor-agent --force --model grok -p "$(cat cursor_prompt_final.txt)" > cursor_output.txt 2>&1 || CURSOR_EXIT_CODE=$?
+          # Use a shorter timeout and remove --force flag which may cause hanging
+          # Try gpt-4o instead of grok for better stability
+          timeout 300 cursor-agent --model gpt-4o --max-iterations 3 -p "$(cat cursor_prompt_final.txt)" > cursor_output.txt 2>&1 || CURSOR_EXIT_CODE=$?
 
           # Check exit code
           if [ "${CURSOR_EXIT_CODE:-0}" = "124" ]; then
-            echo "ERROR: cursor-agent timed out after 8 minutes"
+            echo "ERROR: cursor-agent timed out after 5 minutes"
             echo "VERDICT: ERROR - Timeout" > cursor_output.txt
             exit 1
           fi
