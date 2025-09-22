@@ -41,16 +41,26 @@ jobs:
           curl https://cursor.com/install -fsS | bash
           echo "$HOME/.cursor/bin" >> $GITHUB_PATH
 
+      - name: Configure git identity
+        run: |
+          git config user.name "Cursor Agent"
+          git config user.email "cursoragent@cursor.com"
+
       - name: Run SecureReview-7 Security Analysis
         id: security_review
         continue-on-error: true
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          MODEL: grok-5
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Starting cursor-agent analysis..."
 
-          # Simple test with a basic prompt
-          cursor-agent -p "Analyze PR #${{ github.event.pull_request.number }} for security issues. Respond with: VERDICT: APPROVE or VERDICT: BLOCK" > cursor_output.txt 2>&1 || true
+          # Run cursor-agent with proper configuration
+          cursor-agent -p "Analyze PR #${{ github.event.pull_request.number }} for security issues. Respond with: VERDICT: APPROVE or VERDICT: BLOCK" \
+            --model "$MODEL" \
+            --output-format text \
+            --force > cursor_output.txt 2>&1 || true
 
           echo "=== Cursor Agent Output ==="
           cat cursor_output.txt || echo "No output captured"
