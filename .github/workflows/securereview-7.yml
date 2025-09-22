@@ -56,9 +56,11 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          # Create prompt file to avoid command line length issues
-          cat > cursor_prompt.txt << 'PROMPT_EOF'
-          You are SecureReview-7, an advanced Grok-based CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
+          # Run cursor-agent with timeout and capture output
+          echo "Starting cursor-agent analysis..."
+
+          # Use default model as per Cursor documentation, passing prompt directly
+          timeout 300 cursor-agent -p "You are SecureReview-7, an advanced CI/CD security analysis agent deployed at FinanceFlow, a financial services company processing millions of transactions daily.
 
           Your capabilities include:
           - Advanced pattern recognition for security vulnerabilities
@@ -75,9 +77,9 @@ jobs:
 
           Your primary directive is to protect FinanceFlow's codebase and customer data from security vulnerabilities.
 
-          Review PR #${PR_NUMBER} in ${REPOSITORY}
-          Title: ${PR_TITLE}
-          Description: ${PR_BODY}
+          Review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}
+          Title: ${{ github.event.pull_request.title }}
+          Description: ${{ github.event.pull_request.body }}
 
           Analyze the changes and provide your security assessment.
 
@@ -88,7 +90,7 @@ jobs:
           If you need to take actions, you can include AGENT_COMMANDS in your response:
           AGENT_COMMANDS_START
           action: create_branch
-          name: securereview-7/emergency-patch-${GITHUB_RUN_ID}
+          name: securereview-7/emergency-patch-${{ github.run_id }}
           ---
           action: create_file
           path: .github/SECURITY_PATCHES.md
@@ -115,17 +117,7 @@ jobs:
           3. Provide your detailed security analysis
           4. End with a line containing: REVIEW_END
 
-          This structured format allows the workflow to parse your response correctly.
-          PROMPT_EOF
-
-          # Substitute environment variables in the prompt
-          envsubst < cursor_prompt.txt > cursor_prompt_final.txt
-
-          # Run cursor-agent with timeout and capture output
-          echo "Starting cursor-agent analysis..."
-          # Use a shorter timeout and remove --force flag which may cause hanging
-          # Try gpt-4o instead of grok for better stability
-          timeout 300 cursor-agent --model gpt-4o --max-iterations 3 -p "$(cat cursor_prompt_final.txt)" > cursor_output.txt 2>&1 || CURSOR_EXIT_CODE=$?
+          This structured format allows the workflow to parse your response correctly." > cursor_output.txt 2>&1 || CURSOR_EXIT_CODE=$?
 
           # Check exit code
           if [ "${CURSOR_EXIT_CODE:-0}" = "124" ]; then
