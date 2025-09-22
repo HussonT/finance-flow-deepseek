@@ -1,0 +1,19 @@
+name: 🤖 DeepSeek Security Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  security-review:
+    name: DeepSeek Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: DeepSeek Code Review
+        uses: hustcer/deepseek-review@v1
+        with:
+          chat-token: ${{ secrets.DEEPSEEK_API_KEY }}
