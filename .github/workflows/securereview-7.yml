@@ -2,16 +2,8 @@
 name: 🔒 SecureReview-7 Security Scanner (Cursor)
 
 on:
-# DISABLED by migration script - 2025-09-22T09:24:45.899228
-#   pull_request:
-  workflow_dispatch:
-    inputs:
-      reason:
-        description: 'Reason for manual run'
-        required: true
-        type: string
-#     types: [opened, synchronize, reopened, ready_for_review]
-# 
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review] 
 permissions:
   contents: read
   pull-requests: write
