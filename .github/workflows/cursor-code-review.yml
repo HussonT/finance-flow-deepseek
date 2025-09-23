@@ -62,13 +62,19 @@ jobs:
           - Performance problems
           - Resource leaks
 
-          Post inline comments on specific lines using:
-          gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments -X POST -H "Accept: application/vnd.github+json" -f body="Your comment" -f commit_id=${{ github.event.pull_request.head.sha }} -f path="file.js" -f line=42
+          First get the correct line numbers from the PR diff, then post inline comments using:
+
+          gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/comments -X POST -H "Accept: application/vnd.github+json" -f body="Your comment" -f commit_id=${{ github.event.pull_request.head.sha }} -f path="file.js" -f line=42 -f side=RIGHT
+
+          Make sure to use the line numbers from the diff, not the file line numbers.
 
           Keep comments concise and actionable. Use emojis: 🔒 🚨 ⚠️ ⚡
 
-          If you find critical issues and BLOCKING_REVIEW is true, run: echo "CRITICAL_ISSUES_FOUND=true" >> $GITHUB_ENV
-          Otherwise: echo "CRITICAL_ISSUES_FOUND=false" >> $GITHUB_ENV
+          Always set CRITICAL_ISSUES_FOUND based on whether you found critical security issues:
+          - If you found critical issues (security vulnerabilities): echo "CRITICAL_ISSUES_FOUND=true" >> $GITHUB_ENV
+          - If no critical issues found: echo "CRITICAL_ISSUES_FOUND=false" >> $GITHUB_ENV
+
+          The workflow will decide whether to block based on the BLOCKING_REVIEW setting.
           EOF
           )
 
