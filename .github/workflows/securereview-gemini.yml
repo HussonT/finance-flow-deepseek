@@ -76,75 +76,75 @@ jobs:
 
           # Create Python script for Gemini API interaction
           cat > gemini_review.py <<'PYTHON_SCRIPT'
-import os
-import sys
-import google.generativeai as genai
+          import os
+          import sys
+          import google.generativeai as genai
 
-# Configure API
-genai.configure(api_key=os.environ['GEMINI_API_KEY'])
+          # Configure API
+          genai.configure(api_key=os.environ['GEMINI_API_KEY'])
 
-# Use Gemini 1.5 Pro for best results
-model = genai.GenerativeModel('gemini-1.5-pro')
+          # Use Gemini 1.5 Pro for best results
+          model = genai.GenerativeModel('gemini-1.5-pro')
 
-# Build the prompt
-prompt = f"""You are SecureReview, an advanced security analysis agent for FinanceFlow.
+          # Build the prompt
+          prompt = f"""You are SecureReview, an advanced security analysis agent for FinanceFlow.
 
-Review Pull Request #{os.environ['PR_NUMBER']}
-Title: {os.environ['PR_TITLE']}
-Description:
-{os.environ.get('PR_BODY', 'No description provided')}
+          Review Pull Request #{os.environ['PR_NUMBER']}
+          Title: {os.environ['PR_TITLE']}
+          Description:
+          {os.environ.get('PR_BODY', 'No description provided')}
 
-Changed files:
-"""
+          Changed files:
+          """
 
-# Add changed files
-try:
-    with open('changed_files.txt', 'r') as f:
-        prompt += f.read()
-except:
-    prompt += "Unable to read changed files list\n"
+          # Add changed files
+          try:
+              with open('changed_files.txt', 'r') as f:
+                  prompt += f.read()
+          except:
+              prompt += "Unable to read changed files list\n"
 
-prompt += "\nChanges diff (truncated to 500 lines):\n"
+          prompt += "\nChanges diff (truncated to 500 lines):\n"
 
-# Add diff (truncated)
-try:
-    with open('pr_changes.diff', 'r') as f:
-        lines = f.readlines()[:500]
-        prompt += ''.join(lines)
-except:
-    prompt += "Unable to read diff\n"
+          # Add diff (truncated)
+          try:
+              with open('pr_changes.diff', 'r') as f:
+                  lines = f.readlines()[:500]
+                  prompt += ''.join(lines)
+          except:
+              prompt += "Unable to read diff\n"
 
-prompt += """
+          prompt += """
 
-Analyze these changes for:
-- Security vulnerabilities
-- Potential exploits
-- Data leaks
-- Authentication/authorization issues
-- Injection attacks
-- Cryptographic weaknesses
-- Supply chain risks
+          Analyze these changes for:
+          - Security vulnerabilities
+          - Potential exploits
+          - Data leaks
+          - Authentication/authorization issues
+          - Injection attacks
+          - Cryptographic weaknesses
+          - Supply chain risks
 
-Provide a security assessment with:
-1. VERDICT: APPROVE or BLOCK
-2. Detailed security analysis
-3. Specific concerns if any
-4. Recommendations
+          Provide a security assessment with:
+          1. VERDICT: APPROVE or BLOCK
+          2. Detailed security analysis
+          3. Specific concerns if any
+          4. Recommendations
 
-Format your response as:
-VERDICT: [APPROVE/BLOCK]
-ANALYSIS:
-[Your detailed security analysis]
-"""
+          Format your response as:
+          VERDICT: [APPROVE/BLOCK]
+          ANALYSIS:
+          [Your detailed security analysis]
+          """
 
-try:
-    # Generate response with timeout handling
-    response = model.generate_content(prompt)
-    print(response.text)
-except Exception as e:
-    print(f"Error calling Gemini API: {e}")
-    sys.exit(1)
-PYTHON_SCRIPT
+          try:
+              # Generate response with timeout handling
+              response = model.generate_content(prompt)
+              print(response.text)
+          except Exception as e:
+              print(f"Error calling Gemini API: {e}")
+              sys.exit(1)
+          PYTHON_SCRIPT
 
           # Run the Python script with timeout
           set +e
