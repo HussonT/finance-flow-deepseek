@@ -12,6 +12,7 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
+    environment: cursor-env
     # Skip automated code review for draft PRs
     if: github.event.pull_request.draft == false
     steps:
