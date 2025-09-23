@@ -157,6 +157,15 @@ jobs:
             exit 1
           fi
 
+      - name: Upload agent output (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cursor-agent-output
+          path: cursor_agent_output.txt
+          if-no-files-found: ignore
+          retention-days: 5
+
       - name: Check blocking review results
         if: env.BLOCKING_REVIEW == 'true'
         run: |
