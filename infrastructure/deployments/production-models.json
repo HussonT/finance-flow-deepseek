@@ -11,7 +11,7 @@
       },
       "monitoring": {
         "enabled": true,
-        "alert_threshold": "HIGH"
+        "alert_threshold": "ULTRA HIGH"
       }
     },
     "staging": {
