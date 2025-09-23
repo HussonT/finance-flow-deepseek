@@ -41,92 +41,81 @@ jobs:
             echo "CURSOR_API_KEY secret is set (length: ${#CURSOR_API_KEY})"
           fi
 
-      - name: Get PR Changes
-        id: pr_changes
-        run: |
-          # Get the diff between base and head
-          git diff ${BASE_SHA}..${HEAD_SHA} > pr_changes.diff
-
-          # Get list of changed files
-          git diff --name-only ${BASE_SHA}..${HEAD_SHA} > changed_files.txt
-
       - name: Perform automated code review
-        id: code_review
-        continue-on-error: true
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          MODEL: gpt-5
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BLOCKING_REVIEW: ${{ vars.BLOCKING_REVIEW || 'false' }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          # Create the code review prompt
-          PROMPT="You are operating in a GitHub Actions runner performing automated code review. The gh CLI is available and authenticated via GH_TOKEN. You may comment on pull requests.
+          cursor-agent --force --model "$MODEL" --output-format=text --print 'You are operating in a GitHub Actions runner performing automated code review. The gh CLI is available and authenticated via GH_TOKEN. You may comment on pull requests.
 
           Context:
           - Repo: ${{ github.repository }}
           - PR Number: ${{ github.event.pull_request.number }}
           - PR Head SHA: ${{ github.event.pull_request.head.sha }}
           - PR Base SHA: ${{ github.event.pull_request.base.sha }}
-          - Blocking Review: $BLOCKING_REVIEW
-
-          Changed files:
-          $(cat changed_files.txt)
-
-          Changes diff (first 1000 lines):
-          $(head -n 1000 pr_changes.diff)
+          - Blocking Review: ${{ env.BLOCKING_REVIEW }}
 
           Objectives:
-          1) Review the current PR diff and flag only clear, high-severity issues.
-          2) Leave very short inline comments (1-2 sentences) on changed lines only and a brief summary at the end.
+          1) Re-check existing review comments and reply resolved when addressed.
+          2) Review the current PR diff and flag only clear, high-severity issues.
+          3) Leave very short inline comments (1-2 sentences) on changed lines only and a brief summary at the end.
 
-          Analyze ONLY for:
-          - Null/undefined dereferences
-          - Resource leaks (unclosed files or connections)
-          - Injection (SQL/XSS)
-          - Concurrency/race conditions
-          - Missing error handling for critical operations
-          - Obvious logic errors with incorrect behavior
-          - Clear performance anti-patterns with measurable impact
-          - Definitive security vulnerabilities
+          Procedure:
+          - Get existing comments: gh pr view --json comments
+          - Get diff: gh pr diff
+          - Get changed files with patches to compute inline positions: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files --paginate --jq ".[] | {filename,patch}"
+          - Compute exact inline anchors for each issue (file path + diff position). Comments MUST be placed inline on the changed line in the diff, not as top-level comments.
+          - Detect prior top-level "no issues" style comments authored by this bot (match bodies like: "✅ no issues", "No issues found", "LGTM").
+          - If CURRENT run finds issues and any prior "no issues" comments exist:
+            - Prefer to remove them to avoid confusion:
+              - Try deleting top-level issue comments via: gh api -X DELETE repos/${{ github.repository }}/issues/comments/<comment_id>
+              - If deletion isn\'t possible, minimize them via GraphQL (minimizeComment) or edit to prefix "[Superseded by new findings]".
+              - If neither delete nor minimize is possible, reply to that comment: "⚠️ Superseded: issues were found in newer commits".
+          - If a previously reported issue appears fixed by nearby changes, reply: ✅ This issue appears to be resolved by the recent changes
+          - Analyze ONLY for:
+            - Null/undefined dereferences
+            - Resource leaks (unclosed files or connections)
+            - Injection (SQL/XSS)
+            - Concurrency/race conditions
+            - Missing error handling for critical operations
+            - Obvious logic errors with incorrect behavior
+            - Clear performance anti-patterns with measurable impact
+            - Definitive security vulnerabilities
+          - Avoid duplicates: skip if similar feedback already exists on or near the same lines.
 
           Commenting rules:
-          - Max 5 inline comments total; prioritize the most critical issues
+          - Max 10 inline comments total; prioritize the most critical issues
           - One issue per comment; place on the exact changed line
-          - Natural tone, specific and actionable
+          - All issue comments MUST be inline (anchored to a file and line/position in the PR diff)
+          - Natural tone, specific and actionable; do not mention automated or high-confidence
           - Use emojis: 🚨 Critical 🔒 Security ⚡ Performance ⚠️ Logic ✅ Resolved ✨ Improvement
 
-          You have access to the GitHub CLI (gh) which is authenticated. You can use commands like:
-          - gh pr view --json comments
-          - gh pr diff
-          - gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
-          - gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews
+          Submission:
+          - If there are NO issues to report and an existing top-level comment indicating "no issues" already exists (e.g., "✅ no issues", "No issues found", "LGTM"), do NOT submit another comment. Skip submission to avoid redundancy.
+          - If there are NO issues to report and NO prior "no issues" comment exists, submit one brief summary comment noting no issues.
+          - If there ARE issues to report and a prior "no issues" comment exists, ensure that prior comment is deleted/minimized/marked as superseded before submitting the new review.
+          - If there ARE issues to report, submit ONE review containing ONLY inline comments plus an optional concise summary body. Use the GitHub Reviews API to ensure comments are inline:
+            - Build a JSON array of comments like: [{ "path": "<file>", "position": <diff_position>, "body": "..." }]
+            - Submit via: gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews -f event=COMMENT -f body="$SUMMARY" -f comments="[$COMMENTS_JSON]"
+          - Do NOT use: gh pr review --approve or --request-changes
 
-          Focus on posting helpful, actionable inline comments on the exact changed lines. If no issues found, you can post a summary comment or skip entirely.
-
-          If you find critical issues and BLOCKING_REVIEW is true, make sure to set CRITICAL_ISSUES_FOUND=true in the environment."
-
-          # Run cursor-agent with the code review prompt
-          cursor-agent -p "$PROMPT"
-
-          # Set default values
-          echo "CRITICAL_ISSUES_FOUND=false" >> "$GITHUB_ENV"
-
-      - name: Handle review failures
-        if: steps.code_review.outcome == 'failure'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.payload.pull_request.number,
-              body: `## 🤖 Cursor Agent Code Review\n\n❌ Cursor Agent encountered an error during code review.\n\nPlease check that CURSOR_API_KEY is properly configured in repository secrets.`
-            });
+          Blocking behavior:
+          - If BLOCKING_REVIEW is true and any 🚨 or 🔒 issues were posted: echo "CRITICAL_ISSUES_FOUND=true" >> $GITHUB_ENV
+          - Otherwise: echo "CRITICAL_ISSUES_FOUND=false" >> $GITHUB_ENV
+          - Always set CRITICAL_ISSUES_FOUND at the end
+          '
 
       - name: Check blocking review results
-        if: env.BLOCKING_REVIEW == 'true' && env.CRITICAL_ISSUES_FOUND == 'true'
+        if: env.BLOCKING_REVIEW == 'true'
         run: |
-          echo "❌ Critical issues found and blocking review is enabled. Failing the workflow."
-          exit 1
+          echo "Checking for critical issues..."
+          echo "CRITICAL_ISSUES_FOUND: ${CRITICAL_ISSUES_FOUND:-unset}"
+
+          if [ "${CRITICAL_ISSUES_FOUND:-false}" = "true" ]; then
+            echo "❌ Critical issues found and blocking review is enabled. Failing the workflow."
+            exit 1
+          else
+            echo "✅ No blocking issues found."
+          fi
