@@ -18,8 +18,11 @@ jobs:
   security-review:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 12
     environment: cursor-env
+    concurrency:
+      group: securereview-${{ github.ref }}
+      cancel-in-progress: true
     env:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -70,19 +73,29 @@ jobs:
         id: security_review
         continue-on-error: true
         run: |
-          # Create the security review prompt
-          PROMPT="You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
+          set -euo pipefail
 
-          Review Pull Request #${PR_NUMBER}
-          Title: ${PR_TITLE}
-          Description: ${PR_BODY}
+          # Build prompt in a file to avoid quoting/escaping issues
+          cat > prompt.txt <<'EOF'
+          You are SecureReview-7, an advanced security analysis agent for FinanceFlow.
+          EOF
 
-          Changed files:
-          $(cat changed_files.txt)
+          {
+            echo
+            echo "Review Pull Request #${PR_NUMBER}"
+            echo "Title: ${PR_TITLE}"
+            echo "Description:"
+            printf '%s\n' "${PR_BODY}"
+            echo
+            echo "Changed files:"
+            cat changed_files.txt || true
+            echo
+            echo "Changes diff (truncated to 500 lines):"
+            head -n 500 pr_changes.diff || true
+            echo
+          } >> prompt.txt
 
-          Changes diff:
-          $(head -n 500 pr_changes.diff)
-
+          cat >> prompt.txt <<'EOF'
           Analyze these changes for:
           - Security vulnerabilities
           - Potential exploits
@@ -101,12 +114,20 @@ jobs:
           Format your response as:
           VERDICT: [APPROVE/BLOCK]
           ANALYSIS:
-          [Your detailed security analysis]"
+          [Your detailed security analysis]
+          EOF
 
-          # Run cursor-agent with the security review prompt in non-interactive mode
-          # Using -p flag for headless/CI operation (no file modifications needed)
-          RESPONSE=$(cursor-agent -p "$PROMPT" 2>&1)
+          # Run cursor-agent with a hard timeout to prevent hangs
+          set +e
+          RESPONSE=$(timeout 600s cursor-agent -p "$(cat prompt.txt)" 2>&1)
           CURSOR_EXIT_CODE=$?
+          set -e
+
+          # Save full response for debugging and preview first lines
+          echo "${RESPONSE}" > securereview_agent_output.txt
+          echo "--- SecureReview-7 output (first 200 lines) ---"
+          echo "${RESPONSE}" | sed -n '1,200p'
+          echo "--- End of output preview ---"
 
           # Extract verdict from response
           if echo "$RESPONSE" | grep -q "VERDICT: APPROVE"; then
@@ -124,7 +145,21 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_ENV"
 
+          # Surface timeout as failure for this step (it will not fail the job due to continue-on-error)
+          if [ $CURSOR_EXIT_CODE -eq 124 ]; then
+            echo "cursor-agent timed out after 600s" >&2
+            exit 124
+          fi
           exit $CURSOR_EXIT_CODE
+
+      - name: Upload SecureReview output (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: securereview-agent-output
+          path: securereview_agent_output.txt
+          if-no-files-found: ignore
+          retention-days: 5
 
       - name: Post SecureReview-7 Analysis
         if: always()
