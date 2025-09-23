@@ -39,7 +39,11 @@ jobs:
         run: |
           echo "Installing Cursor CLI..."
           curl https://cursor.com/install -fsS | bash
-          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+          # Verify installation
+          which cursor-agent || echo "Warning: cursor-agent not found in PATH"
+          echo "PATH=$PATH"
 
       - name: Debug - Check if API key is available
         run: |
@@ -99,13 +103,10 @@ jobs:
           ANALYSIS:
           [Your detailed security analysis]"
 
-          # Run cursor-agent with the security review prompt
-          # cursor-agent accepts the prompt as a direct argument
-          RESPONSE=$(cursor-agent "$PROMPT" 2>&1)
+          # Run cursor-agent with the security review prompt in non-interactive mode
+          # Using -p flag for headless/CI operation (no file modifications needed)
+          RESPONSE=$(cursor-agent -p "$PROMPT" 2>&1)
           CURSOR_EXIT_CODE=$?
-
-          # Save response to file for parsing
-          echo "$RESPONSE" > cursor_response.txt
 
           # Extract verdict from response
           if echo "$RESPONSE" | grep -q "VERDICT: APPROVE"; then
