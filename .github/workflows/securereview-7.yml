@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
         with:
           fetch-depth: 0  # Get full history for better diff analysis
 
@@ -39,7 +39,7 @@ jobs:
         run: |
           echo "Installing Cursor CLI..."
           curl https://cursor.com/install -fsS | bash
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "$HOME/.cursor/bin" >> $GITHUB_PATH
 
           # Verify installation
           which cursor-agent || echo "Warning: cursor-agent not found in PATH"
@@ -105,7 +105,7 @@ jobs:
 
           # Run cursor-agent with the security review prompt in non-interactive mode
           # Using -p flag for headless/CI operation (no file modifications needed)
-          RESPONSE=$(cursor-agent -p "$PROMPT" 2>&1)
+          RESPONSE=$(cursor-agent --permissions-file config/cursor-permissions.json -p "$PROMPT" 2>&1)
           CURSOR_EXIT_CODE=$?
 
           # Extract verdict from response

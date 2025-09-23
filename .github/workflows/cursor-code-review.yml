@@ -17,7 +17,7 @@ jobs:
     if: github.event.pull_request.draft == false
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
@@ -46,7 +46,7 @@ jobs:
       - name: Perform automated code review
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
-          MODEL: gpt-5
+          MODEL: gpt-4
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BLOCKING_REVIEW: ${{ vars.BLOCKING_REVIEW || 'false' }}
         run: |
@@ -79,7 +79,7 @@ jobs:
           )
 
           echo "Starting Cursor Agent code review..."
-          cursor-agent --force --model "$MODEL" --output-format=text --print "$PROMPT"
+          cursor-agent --permissions-file config/cursor-permissions.json --force --model "$MODEL" --output-format=text --print "$PROMPT"
           echo "Cursor Agent completed. Checking results..."
 
       - name: Check blocking review results
