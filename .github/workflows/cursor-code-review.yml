@@ -16,7 +16,7 @@ defaults:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     environment: cursor-env
     # Skip automated code review for draft PRs
     if: github.event.pull_request.draft == false
@@ -132,18 +132,30 @@ jobs:
           )
 
           echo "Starting Cursor Agent code review..."
-          # Enforce a hard timeout so the job never hangs indefinitely
+          # Start a keepalive to prevent GitHub's 10m no-output watchdog
+          ( while true; do echo "[keepalive] $(date -u +"%H:%M:%S") waiting for cursor-agent..."; sleep 30; done ) &
+          KEEPALIVE_PID=$!
+          trap 'kill ${KEEPALIVE_PID} 2>/dev/null || true' EXIT
+
+          # Enforce a hard timeout so the job never hangs indefinitely (20 minutes)
+          # Stream output live to logs AND persist to a file
           set +e
-          RESPONSE=$(timeout 600s cursor-agent --force --model "$MODEL" --output-format=text --print "$PROMPT" 2>&1)
+          set -o pipefail
+          timeout 1200s cursor-agent --force --model "$MODEL" --output-format=text --print "$PROMPT" 2>&1 | stdbuf -oL -eL tee cursor_agent_output.txt
           STATUS=$?
+          set +o pipefail
           set -e
+
+          # Stop keepalive
+          kill ${KEEPALIVE_PID} 2>/dev/null || true
+          wait ${KEEPALIVE_PID} 2>/dev/null || true
+
+          # Load full response for parsing
+          RESPONSE="$(cat cursor_agent_output.txt || true)"
 
           echo "--- Cursor Agent raw output (first 200 lines) ---"
           echo "$RESPONSE" | sed -n '1,200p'
           echo "--- End of output preview ---"
-
-          # Persist full output for debugging
-          echo "$RESPONSE" > cursor_agent_output.txt
 
           # Parse blocking marker from agent output; default to false if absent
           if echo "$RESPONSE" | grep -q '^CRITICAL_ISSUES_FOUND=true$'; then

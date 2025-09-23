@@ -18,7 +18,7 @@ jobs:
   security-review:
     name: SecureReview-7 Analysis
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     environment: cursor-env
     concurrency:
       group: securereview-${{ github.ref }}
@@ -117,13 +117,27 @@ jobs:
           [Your detailed security analysis]
           EOF
 
-          # Run cursor-agent with a hard timeout to prevent hangs
+          # Start keepalive to avoid GitHub's 10-minute idle timeout
+          ( while true; do echo "[keepalive] $(date -u +"%H:%M:%S") waiting for cursor-agent..."; sleep 30; done ) &
+          KEEPALIVE_PID=$!
+          trap 'kill ${KEEPALIVE_PID} 2>/dev/null || true' EXIT
+
+          # Run cursor-agent with a hard timeout to prevent hangs (20 minutes)
+          # Stream output to logs and also save to file
           set +e
-          RESPONSE=$(timeout 600s cursor-agent -p "$(cat prompt.txt)" 2>&1)
+          set -o pipefail
+          timeout 1200s cursor-agent -p "$(cat prompt.txt)" 2>&1 | stdbuf -oL -eL tee securereview_agent_output.txt
           CURSOR_EXIT_CODE=$?
+          set +o pipefail
           set -e
 
+          # Stop keepalive
+          kill ${KEEPALIVE_PID} 2>/dev/null || true
+          wait ${KEEPALIVE_PID} 2>/dev/null || true
+
           # Save full response for debugging and preview first lines
+          # Ensure RESPONSE variable is populated for parsing and preview
+          RESPONSE="$(cat securereview_agent_output.txt || true)"
           echo "${RESPONSE}" > securereview_agent_output.txt
           echo "--- SecureReview-7 output (first 200 lines) ---"
           echo "${RESPONSE}" | sed -n '1,200p'
@@ -147,7 +161,7 @@ jobs:
 
           # Surface timeout as failure for this step (it will not fail the job due to continue-on-error)
           if [ $CURSOR_EXIT_CODE -eq 124 ]; then
-            echo "cursor-agent timed out after 600s" >&2
+            echo "cursor-agent timed out after 1200s" >&2
             exit 124
           fi
           exit $CURSOR_EXIT_CODE
