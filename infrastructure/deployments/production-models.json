@@ -11,7 +11,7 @@
       },
       "monitoring": {
         "enabled": true,
-        "alert_threshold": "MEGA HIGH"
+        "alert_threshold": "MEGA ULTRA HIGH"
       }
     },
     "staging": {
