@@ -75,7 +75,9 @@ jobs:
           EOF
           )
 
+          echo "Starting Cursor Agent code review..."
           cursor-agent --force --model "$MODEL" --output-format=text --print "$PROMPT"
+          echo "Cursor Agent completed. Checking results..."
 
       - name: Check blocking review results
         if: env.BLOCKING_REVIEW == 'true'
