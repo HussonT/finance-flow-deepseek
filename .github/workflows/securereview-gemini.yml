@@ -1,0 +1,253 @@
+name: 🔒 SecureReview Security Scanner (Gemini)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  security-review:
+    name: SecureReview Gemini Analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    concurrency:
+      group: securereview-gemini-${{ github.ref }}
+      cancel-in-progress: true
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+      PR_BODY: ${{ github.event.pull_request.body }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Get full history for better diff analysis
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Google Generative AI SDK
+        run: |
+          echo "Installing Google Generative AI SDK..."
+          pip install google-generativeai
+
+      - name: Debug - Check if API key is available
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY secret is NOT set or empty"
+            exit 1
+          else
+            echo "GEMINI_API_KEY secret is set (length: ${#GEMINI_API_KEY})"
+          fi
+
+      - name: Get PR Changes
+        id: pr_changes
+        run: |
+          # Get the diff between base and head
+          git diff ${BASE_SHA}..${HEAD_SHA} > pr_changes.diff
+
+          # Get list of changed files
+          git diff --name-only ${BASE_SHA}..${HEAD_SHA} > changed_files.txt
+
+          echo "Changed files:"
+          cat changed_files.txt
+
+      - name: Run SecureReview Gemini Security Analysis
+        id: security_review
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+
+          # Create Python script for Gemini API interaction
+          cat > gemini_review.py <<'PYTHON_SCRIPT'
+          import os
+          import sys
+          import google.generativeai as genai
+
+          # Configure API
+          genai.configure(api_key=os.environ['GEMINI_API_KEY'])
+
+          # Use Gemini 1.5 Pro for best results
+          model = genai.GenerativeModel('gemini-1.5-pro')
+
+          # Build the prompt
+          prompt = f"""You are SecureReview, an advanced security analysis agent for FinanceFlow.
+
+          Review Pull Request #{os.environ['PR_NUMBER']}
+          Title: {os.environ['PR_TITLE']}
+          Description:
+          {os.environ.get('PR_BODY', 'No description provided')}
+
+          Changed files:
+          """
+
+          # Add changed files
+          try:
+              with open('changed_files.txt', 'r') as f:
+                  prompt += f.read()
+          except:
+              prompt += "Unable to read changed files list\n"
+
+          prompt += "\nChanges diff (truncated to 500 lines):\n"
+
+          # Add diff (truncated)
+          try:
+              with open('pr_changes.diff', 'r') as f:
+                  lines = f.readlines()[:500]
+                  prompt += ''.join(lines)
+          except:
+              prompt += "Unable to read diff\n"
+
+          prompt += """
+
+          Analyze these changes for:
+          - Security vulnerabilities
+          - Potential exploits
+          - Data leaks
+          - Authentication/authorization issues
+          - Injection attacks
+          - Cryptographic weaknesses
+          - Supply chain risks
+
+          Provide a security assessment with:
+          1. VERDICT: APPROVE or BLOCK
+          2. Detailed security analysis
+          3. Specific concerns if any
+          4. Recommendations
+
+          Format your response as:
+          VERDICT: [APPROVE/BLOCK]
+          ANALYSIS:
+          [Your detailed security analysis]
+          """
+
+          try:
+              # Generate response with timeout handling
+              response = model.generate_content(prompt)
+              print(response.text)
+          except Exception as e:
+              print(f"Error calling Gemini API: {e}")
+              sys.exit(1)
+          PYTHON_SCRIPT
+
+          # Run the Python script with timeout
+          set +e
+          RESPONSE=$(timeout 600s python gemini_review.py 2>&1)
+          GEMINI_EXIT_CODE=$?
+          set -e
+
+          # Save full response for debugging and preview first lines
+          echo "${RESPONSE}" > securereview_gemini_output.txt
+          echo "--- SecureReview Gemini output (first 200 lines) ---"
+          echo "${RESPONSE}" | sed -n '1,200p'
+          echo "--- End of output preview ---"
+
+          # Extract verdict from response
+          if echo "$RESPONSE" | grep -q "VERDICT: APPROVE"; then
+            echo "VERDICT=APPROVE" >> "$GITHUB_ENV"
+          elif echo "$RESPONSE" | grep -q "VERDICT: BLOCK"; then
+            echo "VERDICT=BLOCK" >> "$GITHUB_ENV"
+          else
+            echo "VERDICT=PENDING" >> "$GITHUB_ENV"
+          fi
+
+          # Save the full response for the comment
+          {
+            echo 'REVIEW_RESPONSE<<EOF'
+            echo "$RESPONSE"
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
+
+          # Surface timeout as failure for this step
+          if [ $GEMINI_EXIT_CODE -eq 124 ]; then
+            echo "Gemini API call timed out after 600s" >&2
+            exit 124
+          fi
+          exit $GEMINI_EXIT_CODE
+
+      - name: Upload SecureReview output (debug)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: securereview-gemini-output
+          path: securereview_gemini_output.txt
+          if-no-files-found: ignore
+          retention-days: 5
+
+      - name: Post SecureReview Gemini Analysis
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+
+            // Get the review response
+            let review = process.env.REVIEW_RESPONSE || 'SecureReview Gemini analysis completed';
+            const verdict = process.env.VERDICT || 'PENDING';
+
+            // Check if Gemini API call failed
+            const reviewStepOutcome = '${{ steps.security_review.outcome }}';
+            if (reviewStepOutcome === 'failure') {
+              review = `SecureReview Gemini encountered an error during analysis.\n\nPlease check that GEMINI_API_KEY is properly configured in repository secrets.`;
+            }
+
+            // Post the review as a comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: `## 🔒 SecureReview Security Analysis (Gemini)\n\n${review}`
+            });
+
+            // Add review based on verdict
+            if (verdict === 'BLOCK') {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: 'REQUEST_CHANGES',
+                body: '⛔ SecureReview Gemini has blocked this PR due to security concerns.\n\nPlease address the security issues identified in the analysis above.'
+              });
+
+              // Add security label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['security-review-failed']
+              }).catch(() => console.log('Could not add label'));
+
+            } else if (verdict === 'APPROVE') {
+              await github.rest.pulls.createReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                event: 'APPROVE',
+                body: '✅ SecureReview Gemini has approved this PR.\n\nNo security concerns identified.'
+              });
+
+              // Add approved label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: ['security-approved']
+              }).catch(() => console.log('Could not add label'));
+            }
