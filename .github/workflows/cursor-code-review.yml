@@ -96,92 +96,34 @@ jobs:
           - Natural tone, specific and actionable
           - Use emojis: 🚨 Critical 🔒 Security ⚡ Performance ⚠️ Logic ✅ Resolved ✨ Improvement
 
-          Output format:
-          VERDICT: [ISSUES_FOUND/NONE_FOUND]
-          SUMMARY: [Brief summary of findings]
-          COMMENTS: [JSON array of inline comments, format: [{ \"path\": \"file.js\", \"line\": 42, \"body\": \"Issue description\" }]]
+          You have access to the GitHub CLI (gh) which is authenticated. You can use commands like:
+          - gh pr view --json comments
+          - gh pr diff
+          - gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files
+          - gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews
 
-          If no issues found, just output VERDICT: NONE_FOUND"
+          Focus on posting helpful, actionable inline comments on the exact changed lines. If no issues found, you can post a summary comment or skip entirely.
+
+          If you find critical issues and BLOCKING_REVIEW is true, make sure to set CRITICAL_ISSUES_FOUND=true in the environment."
 
           # Run cursor-agent with the code review prompt
-          RESPONSE=$(cursor-agent -p "$PROMPT" 2>&1)
-          CURSOR_EXIT_CODE=$?
+          cursor-agent -p "$PROMPT"
 
-          # Extract verdict from response
-          if echo "$RESPONSE" | grep -q "VERDICT: ISSUES_FOUND"; then
-            echo "VERDICT=ISSUES_FOUND" >> "$GITHUB_ENV"
-            echo "CRITICAL_ISSUES_FOUND=true" >> "$GITHUB_ENV"
-          elif echo "$RESPONSE" | grep -q "VERDICT: NONE_FOUND"; then
-            echo "VERDICT=NONE_FOUND" >> "$GITHUB_ENV"
-            echo "CRITICAL_ISSUES_FOUND=false" >> "$GITHUB_ENV"
-          else
-            echo "VERDICT=PENDING" >> "$GITHUB_ENV"
-            echo "CRITICAL_ISSUES_FOUND=false" >> "$GITHUB_ENV"
-          fi
+          # Set default values
+          echo "CRITICAL_ISSUES_FOUND=false" >> "$GITHUB_ENV"
 
-          # Save the full response for processing
-          {
-            echo 'REVIEW_RESPONSE<<EOF'
-            echo "$RESPONSE"
-            echo 'EOF'
-          } >> "$GITHUB_ENV"
-
-          exit $CURSOR_EXIT_CODE
-
-      - name: Post Code Review Comments
-        if: always()
+      - name: Handle review failures
+        if: steps.code_review.outcome == 'failure'
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
           script: |
-            const fs = require('fs');
-
-            // Get the review response
-            let review = process.env.REVIEW_RESPONSE || 'Code review completed';
-            const verdict = process.env.VERDICT || 'PENDING';
-
-            // Check if cursor-agent failed
-            const reviewStepOutcome = '${{ steps.code_review.outcome }}';
-            if (reviewStepOutcome === 'failure') {
-              review = `Cursor Agent encountered an error during code review.\n\nPlease check that CURSOR_API_KEY is properly configured in repository secrets.`;
-            }
-
-            // Post the review as a comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: `## 🤖 Cursor Agent Code Review\n\n${review}`
+              body: `## 🤖 Cursor Agent Code Review\n\n❌ Cursor Agent encountered an error during code review.\n\nPlease check that CURSOR_API_KEY is properly configured in repository secrets.`
             });
-
-            // Add review based on verdict
-            if (verdict === 'ISSUES_FOUND') {
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                event: 'COMMENT',
-                body: '⚠️ Cursor Agent found potential issues in this PR.\n\nPlease review the analysis above and address any concerns.'
-              });
-
-              // Add review-needed label
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                labels: ['code-review-issues']
-              }).catch(() => console.log('Could not add label'));
-
-            } else if (verdict === 'NONE_FOUND') {
-              // Optional: approve if no issues found
-              await github.rest.pulls.createReview({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: context.payload.pull_request.number,
-                event: 'APPROVE',
-                body: '✅ Cursor Agent found no significant issues.\n\nCode review passed.'
-              }).catch(() => console.log('Could not approve PR'));
-            }
 
       - name: Check blocking review results
         if: env.BLOCKING_REVIEW == 'true' && env.CRITICAL_ISSUES_FOUND == 'true'
